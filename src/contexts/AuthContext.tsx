@@ -19,6 +19,7 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<void>
   signUpWithEmail: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
+  getIdToken: () => Promise<string>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -35,6 +36,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => unsubscribe()
   }, [])
+
+  const getIdToken = async () => {
+    if (!user) {
+      throw new Error('User not authenticated')
+    }
+    return await user.getIdToken()
+  }
 
   const signInWithEmail = async (email: string, password: string) => {
     try {
@@ -76,6 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signInWithGoogle,
     signUpWithEmail,
     signOut,
+    getIdToken,
   }
 
   return (

@@ -7,8 +7,8 @@ import { AuthProvider } from '@/contexts/AuthContext'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'InvoicesAuto - Automated Invoice Processing',
-  description: 'Automate your invoice processing with AI-powered extraction and Excel export.',
+  title: 'Invoice Auto',
+  description: 'Automated invoice processing system',
 }
 
 export default function RootLayout({
@@ -17,8 +17,8 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
+    <html lang="en" suppressHydrationWarning>
+      <body className={inter.className} suppressHydrationWarning>
         <AuthProvider>
           <div className="min-h-screen flex flex-col">
             <main className="flex-grow">
