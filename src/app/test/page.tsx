@@ -53,29 +53,44 @@ export default function Test() {
     return null
   }
 
-  const handleUpload = (result: any) => {
+  const handleUploadSuccess = (result: any) => {
     console.log('Cloudinary upload result:', result)
     
-    // Check if we have a valid result with info property
-    if (!result.info || !result.info.public_id || !result.info.secure_url) {
+    // Handle both old and new result formats
+    const info = result.info || result
+    if (!info || !info.public_id || !info.secure_url) {
       console.error('Invalid upload result:', result)
       return
     }
 
     const fileData: CloudinaryResponse = {
-      public_id: result.info.public_id,
-      secure_url: result.info.secure_url,
-      original_filename: result.info.original_filename || 'Unknown file'
+      public_id: info.public_id,
+      secure_url: info.secure_url,
+      original_filename: info.original_filename || 'Unknown file'
     }
 
     console.log('Processed file data:', fileData)
-    setUploadedFiles(prev => [...prev, fileData])
+    
+    // Check for duplicate files
+    setUploadedFiles(prev => {
+      const isDuplicate = prev.some(file => file.public_id === fileData.public_id)
+      if (isDuplicate) {
+        console.log('Skipping duplicate file:', fileData.original_filename)
+        return prev
+      }
+      return [...prev, fileData]
+    })
+
     setProcessingStatus(prev => ({
       ...prev,
-      [result.info.public_id]: {
+      [info.public_id]: {
         status: 'Ready'
       }
     }))
+  }
+
+  const handleUploadError = (error: any) => {
+    console.error('Upload error:', error)
   }
 
   const formatElapsedTime = (seconds: number) => {
@@ -224,7 +239,8 @@ export default function Test() {
               <h2 className="text-lg font-medium text-gray-900 mb-4">Upload Invoices</h2>
               <CldUploadButton
                 uploadPreset={process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET}
-                onUpload={handleUpload}
+                onSuccess={handleUploadSuccess}
+                onError={handleUploadError}
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
               />
             </div>
