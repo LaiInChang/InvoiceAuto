@@ -12,6 +12,9 @@ import { InvoiceUploader } from '@/components/InvoiceUploader'
 import { InvoiceList } from '@/components/InvoiceList'
 import { InvoiceReport } from '@/components/InvoiceReport'
 import { Invoice } from '@/types/invoice'
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { collection, addDoc, getDocs, query, where, orderBy } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 interface CloudinaryResponse {
   event: string
@@ -34,6 +37,22 @@ interface BatchInfo {
   total: number
 }
 
+interface Invoice {
+  id: string;
+  fileName: string;
+  fileUrl: string;
+  processedAt: Date;
+  userId: string;
+}
+
+interface Report {
+  id: string;
+  fileName: string;
+  fileUrl: string;
+  processedAt: Date;
+  userId: string;
+}
+
 export default function TestPage() {
   const { user, signOut, getIdToken } = useAuth()
   const router = useRouter()
@@ -45,6 +64,13 @@ export default function TestPage() {
   const [currentBatch, setCurrentBatch] = useState<BatchInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [gptResults, setGptResults] = useState<Map<string, any>>(new Map())
+  const [batchSize, setBatchSize] = useState<number>(10); // Default batch size of 10
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
+  const [isLoadingReports, setIsLoadingReports] = useState(false);
+  const [editableResults, setEditableResults] = useState<Map<string, any>>(new Map());
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
 
   const handleUploadSuccess = async (result: CloudinaryResponse) => {
     console.log('Cloudinary upload result:', result)
@@ -68,6 +94,124 @@ export default function TestPage() {
     setUploadedFiles(prev => prev.filter(file => file.public_id !== fileId))
   }
 
+  const saveInvoiceToFirebase = async (fileUrl: string, fileName: string) => {
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+
+    try {
+      const invoiceData = {
+        fileName,
+        fileUrl,
+        processedAt: new Date(),
+        userId: user.uid
+      };
+
+      const docRef = await addDoc(collection(db, 'invoices'), invoiceData);
+      return docRef.id;
+    } catch (error) {
+      console.error('Error saving invoice to Firebase:', error);
+      throw error;
+    }
+  };
+
+  const saveReportToFirebase = async (fileUrl: string, fileName: string) => {
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+
+    try {
+      const reportData = {
+        fileName,
+        fileUrl,
+        processedAt: new Date(),
+        userId: user.uid
+      };
+
+      const docRef = await addDoc(collection(db, 'reports'), reportData);
+      return docRef.id;
+    } catch (error) {
+      console.error('Error saving report to Firebase:', error);
+      throw error;
+    }
+  };
+
+  const loadInvoices = async () => {
+    if (!user) {
+      console.log('User not authenticated, skipping invoice load');
+      return;
+    }
+
+    try {
+      setIsLoadingInvoices(true);
+      const invoicesQuery = query(
+        collection(db, 'invoices'),
+        where('userId', '==', user.uid),
+        orderBy('processedAt', 'desc')
+      );
+      
+      const querySnapshot = await getDocs(invoicesQuery);
+      const invoicesData = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Invoice[];
+      
+      setInvoices(invoicesData);
+    } catch (error) {
+      console.error('Error loading invoices:', error);
+      if (error instanceof Error) {
+        // Check if the error is due to index building
+        if (error.message.includes('index is currently building')) {
+          setError('Indexes are still building. Please wait a few minutes and try again.');
+        } else {
+          setError(`Failed to load invoices: ${error.message}`);
+        }
+      } else {
+        setError('Failed to load invoices');
+      }
+    } finally {
+      setIsLoadingInvoices(false);
+    }
+  };
+
+  const loadReports = async () => {
+    if (!user) {
+      console.log('User not authenticated, skipping report load');
+      return;
+    }
+
+    try {
+      setIsLoadingReports(true);
+      const reportsQuery = query(
+        collection(db, 'reports'),
+        where('userId', '==', user.uid),
+        orderBy('processedAt', 'desc')
+      );
+      
+      const querySnapshot = await getDocs(reportsQuery);
+      const reportsData = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Report[];
+      
+      setReports(reportsData);
+    } catch (error) {
+      console.error('Error loading reports:', error);
+      if (error instanceof Error) {
+        // Check if the error is due to index building
+        if (error.message.includes('index is currently building')) {
+          setError('Indexes are still building. Please wait a few minutes and try again.');
+        } else {
+          setError(`Failed to load reports: ${error.message}`);
+        }
+      } else {
+        setError('Failed to load reports');
+      }
+    } finally {
+      setIsLoadingReports(false);
+    }
+  };
+
   const handleProcessInvoices = async () => {
     if (!user || uploadedFiles.length === 0) return;
 
@@ -82,21 +226,7 @@ export default function TestPage() {
       // Get Firebase token
       const idToken = await getIdToken();
 
-      // Clear previous statuses (simplified)
-      const clearResponse = await fetch('/api/clear-statuses', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${idToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!clearResponse.ok) {
-        throw new Error('Authentication failed');
-      }
-
-      // Process files in batches of 5
-      const batchSize = 5;
+      // Process files in batches
       const totalBatches = Math.ceil(uploadedFiles.length / batchSize);
 
       for (let batchNumber = 1; batchNumber <= totalBatches; batchNumber++) {
@@ -130,6 +260,11 @@ export default function TestPage() {
         // Update results with current batch
         setResults(prev => [...prev, ...batchResults.results]);
         
+        // Save invoices to Firebase
+        for (const file of batchFiles) {
+          await saveInvoiceToFirebase(file.secure_url, file.original_filename);
+        }
+        
         // Update GPT-4 results
         batchResults.results.forEach((result: ProcessedResult) => {
           if (result.success && result.data) {
@@ -161,6 +296,9 @@ export default function TestPage() {
           setCurrentBatch(null);
         }
       }
+
+      // Load updated invoices after processing
+      await loadInvoices();
     } catch (error) {
       console.error('Error processing invoices:', error);
       setError(error instanceof Error ? error.message : 'Failed to process invoices');
@@ -169,6 +307,59 @@ export default function TestPage() {
       setCurrentBatch(null);
     }
   };
+
+  const handleGenerateReport = async () => {
+    if (!user || gptResults.size === 0) return;
+
+    try {
+      setIsGeneratingReport(true);
+      setError(null);
+
+      // Create Excel file from GPT results
+      const excelData = Array.from(gptResults.entries()).map(([fileUrl, data]) => ({
+        ...data,
+        fileUrl
+      }));
+
+      // Generate Excel file
+      const response = await fetch('/api/generate-excel', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${await getIdToken()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ data: excelData })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate Excel file');
+      }
+
+      const { fileUrl, fileName } = await response.json();
+
+      // Save report to Firebase
+      await saveReportToFirebase(fileUrl, fileName);
+
+      // Load updated reports
+      await loadReports();
+
+      // Show success message
+      setError('Report generated successfully!');
+    } catch (error) {
+      console.error('Error generating report:', error);
+      setError(error instanceof Error ? error.message : 'Failed to generate report');
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      loadInvoices();
+      loadReports();
+    }
+  }, [user]);
 
   if (!user) {
     return (
@@ -263,7 +454,33 @@ export default function TestPage() {
           </div>
         </div>
 
-        <div className="mt-8">
+        <div className="mt-8 space-y-4">
+          <div className="bg-white p-6 rounded-lg shadow">
+            <h2 className="text-xl font-semibold mb-4">Processing Settings</h2>
+            <div className="flex items-center space-x-4">
+              <label htmlFor="batchSize" className="text-gray-700">
+                Batch Size:
+              </label>
+              <input
+                type="number"
+                id="batchSize"
+                min="1"
+                max="10"
+                value={batchSize}
+                onChange={(e) => {
+                  const value = parseInt(e.target.value);
+                  if (value >= 1 && value <= 10) {
+                    setBatchSize(value);
+                  }
+                }}
+                className="w-20 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-500">
+                (1-10 files per batch)
+              </span>
+            </div>
+          </div>
+
           <button
             onClick={handleProcessInvoices}
             disabled={isProcessing || uploadedFiles.length === 0}
@@ -277,9 +494,128 @@ export default function TestPage() {
           </button>
         </div>
 
+        <div className="mt-8 bg-white p-6 rounded-lg shadow">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold">Uploaded Invoices</h2>
+            <button
+              onClick={loadInvoices}
+              disabled={isLoadingInvoices}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+            >
+              {isLoadingInvoices ? 'Loading...' : 'Refresh Invoices'}
+            </button>
+          </div>
+
+          {isLoadingInvoices ? (
+            <div className="text-center py-4">Loading invoices...</div>
+          ) : invoices.length === 0 ? (
+            <div className="text-center py-4 text-gray-500">No invoices available</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full border-collapse border border-gray-200">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="border border-gray-200 px-4 py-2 text-left">File Name</th>
+                    <th className="border border-gray-200 px-4 py-2 text-left">Uploaded At</th>
+                    <th className="border border-gray-200 px-4 py-2 text-left">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invoices.map((invoice) => (
+                    <tr key={invoice.id} className="hover:bg-gray-50">
+                      <td className="border border-gray-200 px-4 py-2">
+                        <a
+                          href={invoice.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline"
+                        >
+                          {invoice.fileName}
+                        </a>
+                      </td>
+                      <td className="border border-gray-200 px-4 py-2">
+                        {new Date(invoice.processedAt).toLocaleString()}
+                      </td>
+                      <td className="border border-gray-200 px-4 py-2">
+                        <span className="px-2 py-1 rounded-full text-sm bg-green-100 text-green-800">
+                          Uploaded
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-8 bg-white p-6 rounded-lg shadow">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold">Generated Reports</h2>
+            <button
+              onClick={loadReports}
+              disabled={isLoadingReports}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+            >
+              {isLoadingReports ? 'Loading...' : 'Refresh Reports'}
+            </button>
+          </div>
+
+          {isLoadingReports ? (
+            <div className="text-center py-4">Loading reports...</div>
+          ) : reports.length === 0 ? (
+            <div className="text-center py-4 text-gray-500">No reports available</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full border-collapse border border-gray-200">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="border border-gray-200 px-4 py-2 text-left">File Name</th>
+                    <th className="border border-gray-200 px-4 py-2 text-left">Generated At</th>
+                    <th className="border border-gray-200 px-4 py-2 text-left">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reports.map((report) => (
+                    <tr key={report.id} className="hover:bg-gray-50">
+                      <td className="border border-gray-200 px-4 py-2">
+                        <a
+                          href={report.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline"
+                        >
+                          {report.fileName}
+                        </a>
+                      </td>
+                      <td className="border border-gray-200 px-4 py-2">
+                        {new Date(report.processedAt).toLocaleString()}
+                      </td>
+                      <td className="border border-gray-200 px-4 py-2">
+                        <span className="px-2 py-1 rounded-full text-sm bg-green-100 text-green-800">
+                          Generated
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
         {gptResults.size > 0 && (
           <div className="mt-8 bg-white p-6 rounded-lg shadow overflow-x-auto">
-            <h2 className="text-xl font-semibold mb-4">GPT-4 Analysis Results</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">GPT-4 Analysis Results</h2>
+              <button
+                onClick={handleGenerateReport}
+                disabled={isGeneratingReport}
+                className={`px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400`}
+              >
+                {isGeneratingReport ? 'Generating Report...' : 'Generate Excel Report'}
+              </button>
+            </div>
             <div className="overflow-x-auto">
               <table className="min-w-full border-collapse border border-gray-200">
                 <thead>

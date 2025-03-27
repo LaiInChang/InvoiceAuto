@@ -477,13 +477,13 @@ Example response format:
 }
 
 // Function to determine optimal batch size based on system load
-function determineBatchSize(totalFiles: number): number {
-  // Always use 5 files per batch
-  return 5
+function determineBatchSize(totalFiles: number, requestedBatchSize?: number): number {
+  // Use the requested batch size if provided, otherwise default to 3
+  return requestedBatchSize || 10;
 }
 
 // Process invoices in batches
-async function processBatch(fileUrls: string[]): Promise<BatchResult> {
+async function processBatch(fileUrls: string[], batchSize: number): Promise<BatchResult> {
   console.log(`\n🔄 Starting batch processing of ${fileUrls.length} invoices`)
   
   // Clear previous status
@@ -491,7 +491,6 @@ async function processBatch(fileUrls: string[]): Promise<BatchResult> {
   
   const results: ProcessedResult[] = []
   const failedUrls: FailedUrl[] = []
-  const batchSize = determineBatchSize(fileUrls.length)
   const totalBatches = Math.ceil(fileUrls.length/batchSize)
   
   console.log(`📦 Using batch size: ${batchSize}`)
@@ -620,7 +619,7 @@ export async function POST(request: Request) {
 
     // Get file URLs from request body
     const body = await request.json()
-    const { fileUrls } = body
+    const { fileUrls, batchSize } = body
     if (!fileUrls || !Array.isArray(fileUrls) || fileUrls.length === 0) {
       console.error('❌ Invalid request: No file URLs provided')
       return NextResponse.json({ error: 'File URLs array is required' }, { status: 400 })
@@ -638,7 +637,7 @@ export async function POST(request: Request) {
     console.log(`✅ Validated ${validUrls.length} file URLs`)
 
     // Process invoices in batches
-    const { results, failedUrls, totalBatches, batchSize } = await processBatch(validUrls)
+    const { results, failedUrls, totalBatches, batchSize: actualBatchSize } = await processBatch(validUrls, batchSize)
 
     console.log('\n✨ Request completed successfully')
     return NextResponse.json({
@@ -649,7 +648,7 @@ export async function POST(request: Request) {
       totalFailed: failedUrls.length,
       totalInvoices: validUrls.length,
       totalBatches,
-      batchSize
+      batchSize: actualBatchSize
     })
 
   } catch (error) {
