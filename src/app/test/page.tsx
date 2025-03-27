@@ -5,509 +5,321 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { CldUploadButton } from 'next-cloudinary'
 import { User } from 'firebase/auth'
-import { io, Socket } from 'socket.io-client'
+import { useDropzone } from 'react-dropzone'
+import { CloudinaryUploadWidget } from '@/components/CloudinaryUploadWidget'
+import { DebugPanel } from '@/components/DebugPanel'
+import { InvoiceUploader } from '@/components/InvoiceUploader'
+import { InvoiceList } from '@/components/InvoiceList'
+import { InvoiceReport } from '@/components/InvoiceReport'
+import { Invoice } from '@/types/invoice'
 
 interface CloudinaryResponse {
-  public_id: string
-  secure_url: string
-  original_filename: string
+  event: string
+  info: {
+    public_id: string
+    secure_url: string
+    original_filename: string
+  }
 }
 
 interface ProcessedResult {
-  success: boolean;
-  data?: any;
-  error?: string;
-  fileUrl: string;
+  success: boolean
+  fileUrl: string
+  data?: Invoice
+  error?: string
 }
 
-interface FailedUrl {
-  url: string;
-  error: string;
+interface BatchInfo {
+  number: number
+  total: number
 }
 
-interface ProcessingStatus {
-  status: 'Pending' | 'Processing' | 'Processed' | 'Error' | 'Failed';
-  stage: 'Reading' | 'Analyzing' | 'Completed' | 'Error';
-  currentStage?: 'Azure' | 'GPT4';
-  startTime?: number;
-  endTime?: number;
-  duration?: number;
-  error?: string;
-  batchNumber?: number;
-  totalBatches?: number;
-  fileName?: string;
-  data?: {
-    InvoiceYear?: string;
-    InvoiceQuarter?: string;
-    InvoiceMonth?: string;
-    InvoiceDate?: string;
-    InvoiceNumber?: string;
-    Category?: string;
-    Supplier?: string;
-    Description?: string;
-    VATRegion?: string;
-    Currency?: string;
-    AmountInclVAT?: number;
-    AmountExVAT?: number;
-    VAT?: number;
-  };
-}
-
-interface BatchResult {
-  results: ProcessedResult[];
-  failedUrls: FailedUrl[];
-  totalBatches: number;
-  batchSize: number;
-}
-
-export default function Test() {
+export default function TestPage() {
   const { user, signOut, getIdToken } = useAuth()
   const router = useRouter()
-  const [socket, setSocket] = useState<Socket | null>(null)
   const [uploadedFiles, setUploadedFiles] = useState<CloudinaryResponse[]>([])
   const [processingStatus, setProcessingStatus] = useState<Map<string, ProcessingStatus>>(new Map())
-  const [results, setResults] = useState<any[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
-  const [processingStartTime, setProcessingStartTime] = useState<Date | null>(null)
-  const [elapsedTime, setElapsedTime] = useState(0)
-  const [currentBatch, setCurrentBatch] = useState<{ number: number; total: number } | null>(null)
-  const [batchResults, setBatchResults] = useState<BatchResult[]>([])
+  const [processingStartTime, setProcessingStartTime] = useState<number | null>(null)
+  const [results, setResults] = useState<ProcessedResult[]>([])
+  const [currentBatch, setCurrentBatch] = useState<BatchInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [gptResults, setGptResults] = useState<Map<string, any>>(new Map())
 
-  useEffect(() => {
-    let intervalId: NodeJS.Timeout
-
-    if (isProcessing && processingStartTime) {
-      intervalId = setInterval(() => {
-        const now = new Date()
-        const elapsed = (now.getTime() - processingStartTime.getTime()) / 1000
-        setElapsedTime(elapsed)
-      }, 100)
-    }
-
-    return () => {
-      if (intervalId) {
-        clearInterval(intervalId)
-      }
-    }
-  }, [isProcessing, processingStartTime])
-
-  useEffect(() => {
-    if (!socket && user) {
-      const initSocket = async () => {
-        try {
-          const idToken = await user.getIdToken();
-          const newSocket = io({
-            path: '/api/socketio',
-            auth: { token: idToken }
-          });
-
-          newSocket.on('connect', () => {
-            console.log('Socket.IO connected');
-          });
-
-          newSocket.on('disconnect', () => {
-            console.log('Socket.IO disconnected');
-          });
-
-          newSocket.on('processingStatus', (data) => {
-            console.log('Received processing status:', data);
-            setProcessingStatus(prev => {
-              const newStatus = new Map(prev);
-              newStatus.set(data.fileUrl, data.status);
-              return newStatus;
-            });
-          });
-
-          newSocket.on('batchComplete', (data) => {
-            console.log('Batch completed:', data);
-            // Update batch information
-            setCurrentBatch({
-              number: data.batchNumber,
-              total: data.totalBatches
-            });
-
-            // Update results for this batch
-            setResults(prev => {
-              const newResults = [...prev];
-              data.results.forEach((result: ProcessedResult) => {
-                if (result.success) {
-                  newResults.push(result);
-                }
-              });
-              return newResults;
-            });
-
-            // If this is the last batch, stop processing
-            if (data.batchNumber === data.totalBatches) {
-              setIsProcessing(false);
-              setProcessingStartTime(null);
-              setCurrentBatch(null);
-            }
-          });
-
-          setSocket(newSocket);
-
-          return () => {
-            newSocket.close();
-          };
-        } catch (error) {
-          console.error('Failed to initialize Socket.IO:', error);
-        }
-      };
-
-      initSocket();
-    }
-  }, [socket, user]);
-
-  if (!user) {
-    router.push('/login')
-    return null
-  }
-
-  const handleUploadSuccess = (result: any) => {
+  const handleUploadSuccess = async (result: CloudinaryResponse) => {
     console.log('Cloudinary upload result:', result)
-    
-    // Handle both old and new result formats
-    const info = result.info || result
-    if (!info || !info.public_id || !info.secure_url) {
-      console.error('Invalid upload result:', result)
-      return
-    }
-
-    const fileData: CloudinaryResponse = {
-      public_id: info.public_id,
-      secure_url: info.secure_url,
-      original_filename: info.original_filename || 'Unknown file'
-    }
-
-    console.log('Processed file data:', fileData)
-    
-    // Check for duplicate files
-    setUploadedFiles(prev => {
-      const isDuplicate = prev.some(file => file.public_id === fileData.public_id)
-      if (isDuplicate) {
-        console.log('Skipping duplicate file:', fileData.original_filename)
-        return prev
+    if (result.event === 'success') {
+      const processedFileData = {
+        public_id: result.info.public_id,
+        secure_url: result.info.secure_url,
+        original_filename: result.info.original_filename
       }
-      return [...prev, fileData]
-    })
-
-    setProcessingStatus(prev => {
-      const newStatus = new Map(prev)
-      newStatus.set(info.secure_url, {
-        status: 'Pending',
-        stage: 'Reading',
-        startTime: new Date().getTime()
-      })
-      return newStatus
-    })
+      console.log('Processed file data:', processedFileData)
+      setUploadedFiles(prev => [...prev, processedFileData])
+    }
   }
 
   const handleUploadError = (error: any) => {
     console.error('Upload error:', error)
+    setError('Failed to upload file')
   }
 
-  const formatElapsedTime = (seconds: number) => {
-    return seconds.toFixed(1)
+  const handleRemoveFile = (fileId: string) => {
+    setUploadedFiles(prev => prev.filter(file => file.public_id !== fileId))
   }
 
-  const handleProcess = async () => {
-    if (!uploadedFiles.length) return;
-
-    console.log('Starting processing with files:', uploadedFiles);
-    setIsProcessing(true);
-    setProcessingStartTime(new Date());
-    setProcessingStatus(new Map());
-    setBatchResults([]);
-    setElapsedTime(0);
+  const handleProcessInvoices = async () => {
+    if (!user || uploadedFiles.length === 0) return;
 
     try {
+      setIsProcessing(true);
+      setProcessingStartTime(Date.now());
+      setError(null);
+      setResults([]);
+      setCurrentBatch(null);
+      setGptResults(new Map());
+
+      // Get Firebase token
       const idToken = await getIdToken();
-      console.log('Sending request to process-invoice with files:', uploadedFiles.map(f => f.secure_url));
-      const response = await fetch('/api/process-invoice', {
+
+      // Clear previous statuses (simplified)
+      const clearResponse = await fetch('/api/clear-statuses', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`
-        },
-        body: JSON.stringify({
-          fileUrls: uploadedFiles.map(file => file.secure_url)
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to process invoices');
-      }
-
-      const data = await response.json();
-      console.log('Received processing response:', data);
-      setBatchResults(prev => [...prev, data]);
-      
-      // Update batch information
-      if (data.totalBatches) {
-        setCurrentBatch({
-          number: 1,
-          total: data.totalBatches
-        });
-      }
-      
-      // Update final status
-      data.results.forEach((result: ProcessedResult) => {
-        console.log('Processing result:', result);
-        if (result.success) {
-          setProcessingStatus(prev => {
-            const newStatus = new Map(prev);
-            newStatus.set(result.fileUrl, {
-              status: 'Processed',
-              stage: 'Completed',
-              fileName: result.fileUrl.split('/').pop(),
-              endTime: new Date().getTime(),
-              data: result.data // Add the extracted data here
-            });
-            return newStatus;
-          });
+          'Authorization': `Bearer ${idToken}`,
+          'Content-Type': 'application/json'
         }
       });
 
-      data.failedUrls.forEach((failed: FailedUrl) => {
-        console.log('Processing failed URL:', failed);
-        setProcessingStatus(prev => {
-          const newStatus = new Map(prev);
-          newStatus.set(failed.url, {
-            status: 'Error',
-            stage: 'Error',
-            error: failed.error,
-            fileName: failed.url.split('/').pop(),
-            endTime: new Date().getTime()
-          });
-          return newStatus;
-        });
-      });
+      if (!clearResponse.ok) {
+        throw new Error('Authentication failed');
+      }
 
+      // Process files in batches of 5
+      const batchSize = 5;
+      const totalBatches = Math.ceil(uploadedFiles.length / batchSize);
+
+      for (let batchNumber = 1; batchNumber <= totalBatches; batchNumber++) {
+        setCurrentBatch({ number: batchNumber, total: totalBatches });
+        
+        const startIndex = (batchNumber - 1) * batchSize;
+        const endIndex = Math.min(startIndex + batchSize, uploadedFiles.length);
+        const batchFiles = uploadedFiles.slice(startIndex, endIndex);
+
+        // Process current batch
+        const response = await fetch('/api/process-invoice', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${idToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            fileUrls: batchFiles.map(file => file.secure_url),
+            batchNumber,
+            totalBatches,
+            batchSize
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to process batch ${batchNumber}`);
+        }
+
+        const batchResults = await response.json();
+        
+        // Update results with current batch
+        setResults(prev => [...prev, ...batchResults.results]);
+        
+        // Update GPT-4 results
+        batchResults.results.forEach((result: ProcessedResult) => {
+          if (result.success && result.data) {
+            setGptResults(prev => {
+              const newResults = new Map(prev);
+              newResults.set(result.fileUrl, result.data);
+              return newResults;
+            });
+          }
+        });
+        
+        // Update processing status for each file in the batch
+        batchResults.results.forEach((result: ProcessedResult) => {
+          setProcessingStatus(prev => {
+            const newStatus = new Map(prev);
+            newStatus.set(result.fileUrl, {
+              status: result.success ? 'Processed' : 'Error',
+              stage: result.success ? 'Completed' : 'Error',
+              error: result.error
+            });
+            return newStatus;
+          });
+        });
+
+        // If this is the last batch, stop processing
+        if (batchNumber === totalBatches) {
+          setIsProcessing(false);
+          setProcessingStartTime(null);
+          setCurrentBatch(null);
+        }
+      }
     } catch (error) {
-      console.error('Processing error:', error);
+      console.error('Error processing invoices:', error);
       setError(error instanceof Error ? error.message : 'Failed to process invoices');
-    } finally {
       setIsProcessing(false);
       setProcessingStartTime(null);
       setCurrentBatch(null);
     }
   };
 
-  const handleRemoveFile = (fileId: string) => {
-    const file = uploadedFiles.find(f => f.public_id === fileId)
-    if (!file) return
-
-    setUploadedFiles(prev => prev.filter(f => f.public_id !== fileId))
-    setProcessingStatus(prev => {
-      const newStatus = new Map(prev)
-      newStatus.delete(file.secure_url)
-      return newStatus
-    })
-    setResults(prev => prev.filter(result => result.fileUrl !== file.secure_url))
-  }
-
-  const formatDuration = (ms: number | undefined) => {
-    if (!ms) return 'N/A'
-    const seconds = Math.floor(ms / 1000)
-    const minutes = Math.floor(seconds / 60)
-    const remainingSeconds = seconds % 60
-    return `${minutes}m ${remainingSeconds}s`
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="bg-white p-8 rounded-lg shadow-md">
+          <h1 className="text-2xl font-bold mb-4">Please sign in to continue</h1>
+          <button
+            onClick={() => router.push('/')}
+            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+          >
+            Go to Login
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-7xl mx-auto">
-        <div className="bg-white shadow rounded-lg p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-bold text-gray-900">Invoice Processing Test</h1>
-            <button
-              onClick={signOut}
-              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-            >
-              Sign Out
-            </button>
-          </div>
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold">Invoice Processing</h1>
+          <button
+            onClick={signOut}
+            className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+          >
+            Sign Out
+          </button>
+        </div>
 
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="space-y-6">
-            <div>
-              <h2 className="text-lg font-medium text-gray-900 mb-4">Upload Invoices</h2>
-              <CldUploadButton
-                uploadPreset={process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET}
+            <div className="bg-white p-6 rounded-lg shadow">
+              <h2 className="text-xl font-semibold mb-4">Upload Invoices</h2>
+              <CloudinaryUploadWidget
                 onSuccess={handleUploadSuccess}
                 onError={handleUploadError}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
               />
             </div>
 
-            {uploadedFiles.length > 0 && (
-              <div>
-                <h2 className="text-lg font-medium text-gray-900 mb-4">Uploaded Files</h2>
+            <div className="bg-white p-6 rounded-lg shadow">
+              <h2 className="text-xl font-semibold mb-4">Uploaded Files</h2>
+              <InvoiceList
+                invoices={uploadedFiles.map(file => ({
+                  fileUrl: file.secure_url,
+                  fileName: file.original_filename,
+                  status: processingStatus.get(file.secure_url)?.status || 'Pending'
+                }))}
+                onRemove={handleRemoveFile}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-lg shadow">
+              <h2 className="text-xl font-semibold mb-4">Processing Status</h2>
+              <div className="space-y-4">
                 {currentBatch && (
-                  <div className="mb-4 p-4 bg-blue-50 rounded-lg">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm font-medium text-blue-800">
-                        Processing Batch {currentBatch.number} of {currentBatch.total}
-                      </span>
-                      <span className="text-sm text-blue-600">
-                        {formatElapsedTime(elapsedTime)}s
-                      </span>
-                    </div>
-                    <div className="mt-2 w-full bg-blue-200 rounded-full h-2">
-                      <div 
-                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${(currentBatch.number / currentBatch.total) * 100}%` }}
-                      />
-                    </div>
+                  <div className="bg-blue-50 p-4 rounded">
+                    <h3 className="text-blue-800 font-medium">Current Batch</h3>
+                    <p className="text-lg font-semibold text-blue-600">
+                      Processing batch {currentBatch.number} of {currentBatch.total}
+                    </p>
                   </div>
                 )}
-                <div className="space-y-2">
-                  {uploadedFiles.map((file) => {
-                    const status = processingStatus.get(file.secure_url);
-                    return (
-                      <div key={`${file.public_id}-${file.secure_url}`} className="flex items-center justify-between p-3 bg-gray-50 rounded">
-                        <div className="flex items-center space-x-3">
-                          <span className="text-sm text-gray-600">{file.original_filename}</span>
-                          <div className="flex flex-col">
-                            <span className={`px-2 py-1 text-xs rounded ${
-                              status?.status === 'Error' 
-                                ? 'bg-red-100 text-red-800'
-                                : status?.status === 'Processed'
-                                ? 'bg-green-100 text-green-800'
-                                : status?.status === 'Processing'
-                                ? 'bg-yellow-100 text-yellow-800'
-                                : 'bg-gray-100 text-gray-800'
-                            }`}>
-                              {status?.status || 'Ready'}
-                            </span>
-                            {status?.stage && (
-                              <span className={`text-xs ${
-                                status.stage === 'Reading'
-                                  ? 'text-blue-600'
-                                  : status.stage === 'Analyzing'
-                                  ? 'text-purple-600'
-                                  : status.stage === 'Completed'
-                                  ? 'text-green-600'
-                                  : 'text-red-600'
-                              }`}>
-                                {status.currentStage === 'Azure' 
-                                  ? 'Reading with Azure...'
-                                  : status.currentStage === 'GPT4'
-                                  ? 'Analyzing with GPT-4...'
-                                  : status.stage}
-                              </span>
-                            )}
-                            {status?.startTime && (
-                              <span className="text-xs text-gray-500">
-                                Started: {new Date(status.startTime).toLocaleTimeString()}
-                              </span>
-                            )}
-                            {status?.duration !== undefined && (
-                              <span className="text-xs text-gray-500">
-                                Duration: {formatDuration(status.duration)}
-                              </span>
-                            )}
-                            {status?.error && (
-                              <span className="text-xs text-red-600">
-                                Error: {status.error}
-                              </span>
-                            )}
-                            {status?.data && (
-                              <div className="mt-2 p-2 bg-white rounded border border-gray-200">
-                                <div className="grid grid-cols-2 gap-2 text-xs">
-                                  {Object.entries(status.data).map(([key, value]) => (
-                                    value && (
-                                      <div key={key} className="flex justify-between">
-                                        <span className="text-gray-600">{key}:</span>
-                                        <span className="font-medium">{value}</span>
-                                      </div>
-                                    )
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => handleRemoveFile(file.public_id)}
-                          className="text-red-600 hover:text-red-800"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Batch Results */}
-                {batchResults.length > 0 && (
-                  <div className="mt-8">
-                    <h2 className="text-xl font-semibold mb-4">Processing Results</h2>
-                    {batchResults.map((batch, index) => (
-                      <div key={index} className="bg-white p-4 rounded-lg shadow mb-4">
-                        <h3 className="font-medium mb-2">Batch {index + 1}</h3>
-                        <div className="space-y-2">
-                          <p>Successfully processed: {batch.results.length} invoices</p>
-                          <p>Failed: {batch.failedUrls.length} invoices</p>
-                          <p>Batch size: {batch.batchSize}</p>
-                        </div>
-                      </div>
-                    ))}
+                {isProcessing && processingStartTime && (
+                  <div className="bg-yellow-50 p-4 rounded">
+                    <h3 className="text-yellow-800 font-medium">Processing Time</h3>
+                    <p className="text-lg font-semibold text-yellow-600">
+                      {Math.floor((Date.now() - processingStartTime) / 1000)} seconds
+                    </p>
                   </div>
                 )}
-
-                <button
-                  onClick={handleProcess}
-                  disabled={isProcessing}
-                  className={`mt-4 px-4 py-2 rounded ${
-                    isProcessing
-                      ? 'bg-gray-400 cursor-not-allowed'
-                      : 'bg-green-600 hover:bg-green-700 text-white'
-                  }`}
-                >
-                  {isProcessing ? (
-                    <div className="flex items-center space-x-2">
-                      <span>Processing...</span>
-                      <span className="text-sm">
-                        ({formatElapsedTime(elapsedTime)}s)
-                      </span>
-                    </div>
-                  ) : (
-                    'Process All Invoices'
-                  )}
-                </button>
+                {error && (
+                  <div className="bg-red-50 p-4 rounded">
+                    <h3 className="text-red-800 font-medium">Error</h3>
+                    <p className="text-red-600">{error}</p>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
 
-            {results.length > 0 && (
-              <div>
-                <h2 className="text-lg font-medium text-gray-900 mb-4">Processing Results</h2>
-                <div className="space-y-4">
-                  {results.map((result, index) => {
-                    const file = uploadedFiles.find(f => f.secure_url === result.fileUrl)
-                    return (
-                      <div key={`${file?.public_id || index}-${result.fileUrl}`} className="p-4 bg-gray-50 rounded">
-                        <h3 className="font-medium text-gray-900 mb-2">
-                          File: {file?.original_filename}
-                        </h3>
-                        {result.success ? (
-                          <pre className="bg-white p-4 rounded overflow-auto">
-                            {JSON.stringify(result.data, null, 2)}
-                          </pre>
-                        ) : (
-                          <div className="text-red-600">
-                            Error: {result.error}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
+            <div className="bg-white p-6 rounded-lg shadow">
+              <h2 className="text-xl font-semibold mb-4">Processing Report</h2>
+              <InvoiceReport invoices={results.map(result => ({
+                ...result.data,
+                fileUrl: result.fileUrl,
+                status: result.success ? 'Processed' : 'Error',
+                error: result.error
+              }))} />
+            </div>
           </div>
         </div>
+
+        <div className="mt-8">
+          <button
+            onClick={handleProcessInvoices}
+            disabled={isProcessing || uploadedFiles.length === 0}
+            className={`w-full py-3 px-4 rounded-lg text-white font-semibold ${
+              isProcessing || uploadedFiles.length === 0
+                ? 'bg-gray-400 cursor-not-allowed'
+                : 'bg-green-600 hover:bg-green-700'
+            }`}
+          >
+            {isProcessing ? 'Processing...' : 'Process Invoices'}
+          </button>
+        </div>
+
+        {gptResults.size > 0 && (
+          <div className="mt-8 bg-white p-6 rounded-lg shadow overflow-x-auto">
+            <h2 className="text-xl font-semibold mb-4">GPT-4 Analysis Results</h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full border-collapse border border-gray-200">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="border border-gray-200 px-4 py-2 text-left">Invoice Number</th>
+                    <th className="border border-gray-200 px-4 py-2 text-left">Date</th>
+                    <th className="border border-gray-200 px-4 py-2 text-left">Quarter</th>
+                    <th className="border border-gray-200 px-4 py-2 text-left">Month</th>
+                    <th className="border border-gray-200 px-4 py-2 text-left">Category</th>
+                    <th className="border border-gray-200 px-4 py-2 text-left">Supplier</th>
+                    <th className="border border-gray-200 px-4 py-2 text-left">Description</th>
+                    <th className="border border-gray-200 px-4 py-2 text-left">VAT Region</th>
+                    <th className="border border-gray-200 px-4 py-2 text-left">Currency</th>
+                    <th className="border border-gray-200 px-4 py-2 text-right">Amount (Incl. VAT)</th>
+                    <th className="border border-gray-200 px-4 py-2 text-right">Amount (Excl. VAT)</th>
+                    <th className="border border-gray-200 px-4 py-2 text-right">VAT</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from(gptResults.entries()).map(([fileUrl, data]) => (
+                    <tr key={fileUrl} className="hover:bg-gray-50">
+                      <td className="border border-gray-200 px-4 py-2">{data.InvoiceNumber || '-'}</td>
+                      <td className="border border-gray-200 px-4 py-2">{data.InvoiceDate || '-'}</td>
+                      <td className="border border-gray-200 px-4 py-2">{data.InvoiceQuarter || '-'}</td>
+                      <td className="border border-gray-200 px-4 py-2">{data.InvoiceMonth || '-'}</td>
+                      <td className="border border-gray-200 px-4 py-2">{data.Category || '-'}</td>
+                      <td className="border border-gray-200 px-4 py-2">{data.Supplier || '-'}</td>
+                      <td className="border border-gray-200 px-4 py-2">{data.Description || '-'}</td>
+                      <td className="border border-gray-200 px-4 py-2">{data.VATRegion || '-'}</td>
+                      <td className="border border-gray-200 px-4 py-2">{data.Currency || '-'}</td>
+                      <td className="border border-gray-200 px-4 py-2 text-right">{data.AmountInclVAT || '-'}</td>
+                      <td className="border border-gray-200 px-4 py-2 text-right">{data.AmountExVAT || '-'}</td>
+                      <td className="border border-gray-200 px-4 py-2 text-right">{data.VAT || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
