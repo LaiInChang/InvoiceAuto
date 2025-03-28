@@ -8,8 +8,11 @@ import { PhoneInput } from '@/components/PhoneInput'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { updateProfile } from 'firebase/auth'
 import { db } from '@/lib/firebase'
+import { collection, query, where, getDocs, orderBy } from 'firebase/firestore'
+import { format } from 'date-fns'
 
 interface UserProfile {
+  uid: string
   firstName: string
   lastName: string
   email: string
@@ -17,14 +20,33 @@ interface UserProfile {
   phoneCountryCode: string
   company: string
   address: {
+    country: string
     street: string
     houseNumber: string
     addition: string
     postalCode: string
     city: string
-    country: string
   }
   paymentMethod: string
+  displayName: string
+  createdAt: Date
+}
+
+interface Invoice {
+  id: string
+  fileName: string
+  fileUrl: string
+  processedAt: Date
+  status: string
+  results?: any
+}
+
+interface Report {
+  id: string
+  fileName: string
+  fileUrl: string
+  processedAt: Date
+  results: any
 }
 
 const EU_COUNTRIES = [
@@ -46,9 +68,10 @@ export default function Account() {
   const { user, signOut } = useAuth()
   const router = useRouter()
   const [activeTab, setActiveTab] = useState('profile')
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
   const [profile, setProfile] = useState<UserProfile>({
+    uid: '',
     firstName: '',
     lastName: '',
     email: '',
@@ -56,63 +79,146 @@ export default function Account() {
     phoneCountryCode: '+31',
     company: '',
     address: {
+      country: 'NL',
       street: '',
       houseNumber: '',
       addition: '',
       postalCode: '',
-      city: '',
-      country: 'Netherlands'
+      city: ''
     },
-    paymentMethod: 'ideal'
+    paymentMethod: 'ideal',
+    displayName: '',
+    createdAt: new Date()
   })
   const [isEditing, setIsEditing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [reports, setReports] = useState<Report[]>([])
+  const [loadingInvoices, setLoadingInvoices] = useState(false)
+  const [loadingReports, setLoadingReports] = useState(false)
 
   useEffect(() => {
-    if (!user) {
-      router.push('/login')
-      return
-    }
+    const fetchData = async () => {
+      if (!user) {
+        console.log('No user found, redirecting to login')
+        router.push('/login')
+        return
+      }
 
-    const fetchProfile = async () => {
+      console.log('Fetching data for user:', user.uid)
+      setLoading(true)
+
       try {
-        const docRef = doc(db, 'users', user.uid)
-        const docSnap = await getDoc(docRef)
+        // Fetch user profile
+        console.log('Fetching user profile...')
+        const userDocRef = doc(db, 'users', user.uid)
+        const userDoc = await getDoc(userDocRef)
         
-        if (docSnap.exists()) {
-          const data = docSnap.data()
-          setProfile({
-            firstName: data.firstName || '',
-            lastName: data.lastName || '',
-            email: user.email || '',
-            phone: data.phone || '',
-            phoneCountryCode: data.phoneCountryCode || '+31',
-            company: data.company || '',
-            address: {
-              street: data.address?.street || '',
-              houseNumber: data.address?.houseNumber || '',
-              addition: data.address?.addition || '',
-              postalCode: data.address?.postalCode || '',
-              city: data.address?.city || '',
-              country: data.address?.country || 'Netherlands'
-            },
-            paymentMethod: data.paymentMethod || 'ideal'
-          })
+        if (userDoc.exists()) {
+          console.log('User profile found:', userDoc.data())
+          setProfile(userDoc.data() as UserProfile)
         } else {
-          // Initialize with email if no profile exists
-          setProfile(prev => ({
-            ...prev,
-            firstName: user.displayName?.split(' ')[0] || '',
-            lastName: user.displayName?.split(' ')[1] || '',
-            email: user.email || ''
-          }))
+          console.log('No user profile found, creating new profile')
+          const newProfile: UserProfile = {
+            uid: user.uid,
+            firstName: '',
+            lastName: '',
+            email: user.email || '',
+            phone: '',
+            phoneCountryCode: 'NL',
+            company: '',
+            address: {
+              country: 'NL',
+              street: '',
+              houseNumber: '',
+              addition: '',
+              postalCode: '',
+              city: ''
+            },
+            paymentMethod: 'ideal',
+            displayName: user.displayName || 'User',
+            createdAt: new Date()
+          }
+          await setDoc(userDocRef, newProfile)
+          setProfile(newProfile)
         }
+
+        // Fetch invoices
+        console.log('Fetching invoices...')
+        setLoadingInvoices(true)
+        const invoicesQuery = query(
+          collection(db, 'invoices'),
+          where('userId', '==', user.uid),
+          orderBy('processedAt', 'desc')
+        )
+        console.log('Invoices query parameters:', {
+          collection: 'invoices',
+          userId: user.uid,
+          orderBy: 'processedAt'
+        })
+        const invoicesSnapshot = await getDocs(invoicesQuery)
+        console.log('Invoices snapshot metadata:', {
+          empty: invoicesSnapshot.empty,
+          size: invoicesSnapshot.size,
+          docs: invoicesSnapshot.docs.map(doc => ({
+            id: doc.id,
+            data: doc.data()
+          }))
+        })
+        const invoicesData = invoicesSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          processedAt: doc.data().processedAt?.toDate() || new Date()
+        })) as Invoice[]
+        console.log('Invoices fetched:', invoicesData.length)
+        setInvoices(invoicesData)
+        setLoadingInvoices(false)
+
+        // Fetch reports
+        console.log('Fetching reports...')
+        setLoadingReports(true)
+        const reportsQuery = query(
+          collection(db, 'reports'),
+          where('userId', '==', user.uid),
+          orderBy('processedAt', 'desc')
+        )
+        console.log('Reports query parameters:', {
+          collection: 'reports',
+          userId: user.uid,
+          orderBy: 'processedAt'
+        })
+        const reportsSnapshot = await getDocs(reportsQuery)
+        console.log('Reports snapshot metadata:', {
+          empty: reportsSnapshot.empty,
+          size: reportsSnapshot.size,
+          docs: reportsSnapshot.docs.map(doc => ({
+            id: doc.id,
+            data: doc.data()
+          }))
+        })
+        const reportsData = reportsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          processedAt: doc.data().processedAt?.toDate() || new Date()
+        })) as Report[]
+        console.log('Reports fetched:', reportsData.length)
+        setReports(reportsData)
+        setLoadingReports(false)
+
       } catch (error) {
-        console.error('Error fetching profile:', error)
-        setMessage({ type: 'error', text: 'Failed to load profile data. Please try again.' })
+        console.error('Error in fetchData:', error)
+        if (error instanceof Error) {
+          setMessage({
+            type: 'error',
+            text: `Error: ${error.message}`
+          })
+        }
+      } finally {
+        setLoading(false)
       }
     }
 
-    fetchProfile()
+    fetchData()
   }, [user, router])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -140,13 +246,24 @@ export default function Account() {
     }
   }
 
-  const handleLogout = async () => {
-    try {
-      await signOut()
-      router.push('/login')
-    } catch (error) {
-      console.error('Failed to logout:', error)
-    }
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center">Loading...</div>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center text-red-600">{error}</div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -250,7 +367,6 @@ export default function Account() {
                               className="block w-full rounded-md border-gray-300 bg-gray-100 text-gray-500 sm:text-sm cursor-not-allowed h-12"
                             />
                           </div>
-                        
                         </div>
 
                         <div className="sm:col-span-3">
@@ -456,34 +572,84 @@ export default function Account() {
               {activeTab === 'invoices' && (
                 <div className="space-y-6">
                   <h3 className="text-lg font-medium leading-6 text-gray-900">Your Invoices</h3>
-                  <div className="bg-white shadow overflow-hidden sm:rounded-md">
-                    <ul className="divide-y divide-gray-200">
-                      {/* TODO: Replace with actual invoice data */}
-                      <li className="px-4 py-4 flex items-center justify-between">
-                        <div className="text-sm text-gray-900">No invoices found</div>
-                      </li>
-                    </ul>
-                  </div>
+                  {loadingInvoices ? (
+                    <div className="text-center py-4">Loading invoices...</div>
+                  ) : (
+                    <div className="bg-white shadow overflow-hidden sm:rounded-md">
+                      <ul className="divide-y divide-gray-200">
+                        {invoices.length > 0 ? (
+                          invoices.map((invoice) => (
+                            <li key={invoice.id} className="px-4 py-4 flex items-center justify-between">
+                              <div className="text-sm text-gray-900">
+                                {invoice.fileName}
+                              </div>
+                              <div className="flex items-center space-x-4">
+                                <div className="text-sm text-gray-500">
+                                  {format(invoice.processedAt, 'MMM d, yyyy HH:mm')}
+                                </div>
+                                <a
+                                  href={invoice.fileUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-primary-600 hover:text-primary-900"
+                                >
+                                  Download
+                                </a>
+                              </div>
+                            </li>
+                          ))
+                        ) : (
+                          <li className="px-4 py-4">
+                            <div className="text-sm text-gray-500">No invoices found</div>
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
 
               {activeTab === 'reports' && (
                 <div className="space-y-6">
                   <h3 className="text-lg font-medium leading-6 text-gray-900">Excel Reports</h3>
-                  <div className="bg-white shadow overflow-hidden sm:rounded-md">
-                    <ul className="divide-y divide-gray-200">
-                      {/* TODO: Replace with actual reports data */}
-                      <li className="px-4 py-4 flex items-center justify-between">
-                        <div className="text-sm text-gray-900">No reports found</div>
-                      </li>
-                    </ul>
-                  </div>
+                  {loadingReports ? (
+                    <div className="text-center py-4">Loading reports...</div>
+                  ) : (
+                    <div className="bg-white shadow overflow-hidden sm:rounded-md">
+                      <ul className="divide-y divide-gray-200">
+                        {reports.length > 0 ? (
+                          reports.map((report) => (
+                            <li key={report.id} className="px-4 py-4 flex items-center justify-between">
+                              <div className="text-sm text-gray-900">
+                                {report.fileName}
+                              </div>
+                              <div className="flex items-center space-x-4">
+                                <div className="text-sm text-gray-500">
+                                  {format(report.processedAt, 'MMM d, yyyy HH:mm')}
+                                </div>
+                                <a
+                                  href={report.fileUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-primary-600 hover:text-primary-900"
+                                >
+                                  Download
+                                </a>
+                              </div>
+                            </li>
+                          ))
+                        ) : (
+                          <li className="px-4 py-4">
+                            <div className="text-sm text-gray-500">No reports found</div>
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           </div>
-
-          
         </div>
       </div>
     </>
