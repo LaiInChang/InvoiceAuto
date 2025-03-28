@@ -2,6 +2,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { getAuth } from 'firebase/auth';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -18,4 +19,22 @@ const db = getFirestore(app);
 const storage = getStorage(app);
 const auth = getAuth(app);
 
-export { app, db, storage, auth }; 
+export { app, db, storage, auth };
+
+export async function uploadToFirebase(file: Blob): Promise<string> {
+  try {
+    // Create a unique filename
+    const filename = `reports/invoice_report_${Date.now()}.xlsx`
+    const storageRef = ref(storage, filename)
+
+    // Upload file
+    await uploadBytes(storageRef, file)
+
+    // Get download URL
+    const downloadURL = await getDownloadURL(storageRef)
+    return downloadURL
+  } catch (error) {
+    console.error('Error uploading to Firebase:', error)
+    throw error
+  }
+} 
