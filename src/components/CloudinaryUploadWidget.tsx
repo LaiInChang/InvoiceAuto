@@ -27,7 +27,7 @@ export function CloudinaryUploadWidget({ onSuccess, onError, autoOpen }: Cloudin
           {
             cloudName: 'dxxqjzq6c',
             uploadPreset: 'invoice_auto',
-            sources: ['local', 'camera'],
+            sources: ['local', 'camera', 'google_drive', 'dropbox', 'facebook', 'instagram', 'url'],
             multiple: true,
             maxFiles: 10,
             resourceType: 'auto',
@@ -78,8 +78,10 @@ export function CloudinaryUploadWidget({ onSuccess, onError, autoOpen }: Cloudin
           },
           (error: any, result: any) => {
             if (!error && result && result.event === 'success') {
+              console.log('Upload success:', result)
               onSuccess(result)
             } else if (error) {
+              console.error('Upload error:', error)
               onError(error)
             }
           }
