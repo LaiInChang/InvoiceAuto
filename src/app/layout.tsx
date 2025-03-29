@@ -19,6 +19,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          src="https://upload-widget.cloudinary.com/global/all.js"
+          type="text/javascript"
+        />
+      </head>
       <body className={inter.className} suppressHydrationWarning>
         <AuthProvider>
           <div className="min-h-screen flex flex-col">
