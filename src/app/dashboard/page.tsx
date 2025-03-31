@@ -36,10 +36,14 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null)
   const [uploadedFiles, setUploadedFiles] = useState<CloudinaryResponse[]>([])
   const [isDragging, setIsDragging] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const [isRemoving, setIsRemoving] = useState<string | null>(null)
+  const [isRemovingAll, setIsRemovingAll] = useState(false)
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: async (acceptedFiles) => {
       setIsDragging(false)
+      setIsUploading(true)
       try {
         console.log('Starting file upload...')
         for (const file of acceptedFiles) {
@@ -78,6 +82,8 @@ export default function DashboardPage() {
       } catch (error) {
         console.error('Upload error:', error)
         setError(error instanceof Error ? error.message : 'Failed to upload file')
+      } finally {
+        setIsUploading(false)
       }
     },
     onDragEnter: () => setIsDragging(true),
@@ -232,6 +238,7 @@ export default function DashboardPage() {
   }
 
   const handleCancelInvoice = async (invoiceId: string, publicId: string) => {
+    setIsRemoving(invoiceId)
     try {
       // Delete from Cloudinary
       await fetch(`/api/delete-cloudinary`, {
@@ -249,10 +256,13 @@ export default function DashboardPage() {
     } catch (error) {
       console.error('Error cancelling invoice:', error)
       setError('Failed to cancel invoice')
+    } finally {
+      setIsRemoving(null)
     }
   }
 
   const handleCancelAll = async () => {
+    setIsRemovingAll(true)
     try {
       // Delete all from Cloudinary
       await Promise.all(
@@ -276,6 +286,8 @@ export default function DashboardPage() {
     } catch (error) {
       console.error('Error cancelling all invoices:', error)
       setError('Failed to cancel all invoices')
+    } finally {
+      setIsRemovingAll(false)
     }
   }
 
@@ -292,17 +304,22 @@ export default function DashboardPage() {
         </div>
 
         {/* Upload Section */}
-        <div className="bg-white rounded-lg shadow">
+        <div className="bg-white rounded-lg shadow mb-8">
           <div className="p-6">
             <div
               {...getRootProps()}
-              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors duration-200 ${
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors duration-200 relative ${
                 isDragging
                   ? 'border-primary-500 bg-primary-50'
                   : 'border-gray-300 hover:border-primary-500'
               }`}
             >
               <input {...getInputProps()} />
+              {isUploading && (
+                <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center rounded-lg">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
+                </div>
+              )}
               <CloudArrowUpIcon className={`mx-auto h-12 w-12 transition-colors duration-200 ${
                 isDragging ? 'text-primary-500' : 'text-gray-400'
               }`} />
@@ -310,6 +327,8 @@ export default function DashboardPage() {
                 <p className="text-sm font-medium text-gray-900">
                   {isDragging
                     ? 'Drop your files here'
+                    : isUploading
+                    ? 'Uploading...'
                     : 'Drag and drop your files here'}
                 </p>
                 <p className="mt-1 text-sm text-gray-500">
@@ -317,17 +336,24 @@ export default function DashboardPage() {
                 </p>
               </div>
             </div>
+            {/* Upload Button */}
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={openUploadWidget}
+                disabled={isUploading}
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isUploading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Uploading...
+                  </>
+                ) : (
+                  'Upload Invoice'
+                )}
+              </button>
+            </div>
           </div>
-        </div>
-
-        {/* Upload Button */}
-        <div className="mt-4">
-          <button
-            onClick={openUploadWidget}
-            className="w-full inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
-          >
-            Upload Invoice
-          </button>
         </div>
 
         {/* Invoices List */}
@@ -340,13 +366,22 @@ export default function DashboardPage() {
                   <>
                     <button
                       onClick={handleCancelAll}
-                      className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                      disabled={isRemovingAll}
+                      className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Cancel All
+                      {isRemovingAll ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-700 mr-2"></div>
+                          Removing...
+                        </>
+                      ) : (
+                        'Cancel All'
+                      )}
                     </button>
                     <button
                       onClick={handleProcessInvoices}
-                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+                      disabled={isRemovingAll}
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Process Invoices
                     </button>
@@ -357,7 +392,9 @@ export default function DashboardPage() {
           </div>
 
           {isLoading ? (
-            <div className="px-6 py-4 text-center text-gray-500">Loading...</div>
+            <div className="px-6 py-4 text-center text-gray-500">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500 mx-auto"></div>
+            </div>
           ) : error ? (
             <div className="px-6 py-4 text-center text-red-500">{error}</div>
           ) : invoices.length === 0 ? (
@@ -383,9 +420,17 @@ export default function DashboardPage() {
                   </div>
                   <button
                     onClick={() => handleCancelInvoice(invoice.id, invoice.publicId)}
-                    className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                    disabled={isRemoving === invoice.id}
+                    className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Cancel
+                    {isRemoving === invoice.id ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-700 mr-2"></div>
+                        Removing...
+                      </>
+                    ) : (
+                      'Cancel'
+                    )}
                   </button>
                 </div>
               ))}
