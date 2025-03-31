@@ -188,9 +188,9 @@ export default function DashboardPage() {
       {
         cloudName: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
         uploadPreset: process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET,
-        sources: ['local', 'camera', 'google_drive', 'dropbox', 'facebook', 'instagram', 'shutterstock', 'istock', 'getty'],
+        sources: ['google_drive', 'dropbox', 'camera', 'facebook', 'instagram', 'shutterstock', 'istock', 'getty'],
         multiple: true,
-        defaultSource: 'local',
+        defaultSource: 'google_drive',
         clientAllowedFormats: ['pdf', 'jpg', 'jpeg', 'png'],
         maxFileSize: 10000000,
         resourceType: 'auto',
@@ -308,7 +308,7 @@ export default function DashboardPage() {
           <div className="p-6">
             <div
               {...getRootProps()}
-              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors duration-200 relative ${
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors duration-200 relative cursor-pointer ${
                 isDragging
                   ? 'border-primary-500 bg-primary-50'
                   : 'border-gray-300 hover:border-primary-500'
@@ -329,7 +329,7 @@ export default function DashboardPage() {
                     ? 'Drop your files here'
                     : isUploading
                     ? 'Uploading...'
-                    : 'Drag and drop your files here'}
+                    : 'Click to browse, or drag and drop your files here'}
                 </p>
                 <p className="mt-1 text-sm text-gray-500">
                   PDF, JPG, or PNG up to 10MB
@@ -349,7 +349,7 @@ export default function DashboardPage() {
                     Uploading...
                   </>
                 ) : (
-                  'Upload Invoice'
+                  'Upload invoice from other sources'
                 )}
               </button>
             </div>
