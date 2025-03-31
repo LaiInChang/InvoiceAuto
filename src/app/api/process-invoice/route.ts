@@ -63,15 +63,47 @@ async function processWithGPT4(text: string): Promise<any> {
           {
             role: "system",
             content: `Extract these fields from the invoice text:
-              InvoiceYear, InvoiceQuarter (1-4), InvoiceMonth (MM), InvoiceDate (DD),
+              InvoiceYear, InvoiceMonth (MM), InvoiceDate (DD),
               InvoiceNumber, Category, Supplier, Description, VATRegion, Currency,
               AmountInclVAT, AmountExVAT, VAT
               
               Rules:
-              1. Date format: Extract the day number from any date format (e.g., from "30-05-2024" extract 30)
-              2. Month format: Extract the month number from any date format (e.g., from "30-05-2024" extract 5)
-              3. VAT/BTW: Look for any percentage values, especially those marked with %, BTW, or VAT
-              4. Return as JSON. Leave empty if not found. Infer Category, VATRegion, and Currency if not explicit.`
+              1. Date extraction: 
+                 - Look for any date format (DD-MM-YYYY, YYYY-MM-DD, DD/MM/YYYY, etc.)
+                 - Extract the day number (e.g., "30-05-2024" -> 30)
+                 - Extract the month number (e.g., "30-05-2024" -> 5)
+                 - Extract the year (e.g., "30-05-2024" -> 2024)
+                 - If multiple dates found, prefer the invoice date over other dates
+                 - If no date found, use the current date
+              2. Month format: 
+                 - Must be a number (1-12)
+                 - Convert month names to numbers (e.g., "January" -> 1)
+              3. VAT/BTW extraction: 
+                 - Look for any percentage values, especially those marked with %, BTW, or VAT
+                 - Extract both the percentage and the amounts
+              4. Quarter calculation:
+                 - Calculate based on the month number:
+                   * Q1: January (1) to March (3)
+                   * Q2: April (4) to June (6)
+                   * Q3: July (7) to September (9)
+                   * Q4: October (10) to December (12)
+              5. Return as JSON. Leave empty if not found. Infer Category, VATRegion, and Currency if not explicit.
+              
+              Example response format:
+              {
+                "InvoiceYear": 2024,
+                "InvoiceMonth": 5,
+                "InvoiceDate": 30,
+                "InvoiceNumber": "INV-001",
+                "Category": "Office Supplies",
+                "Supplier": "Example Corp",
+                "Description": "Monthly office supplies",
+                "VATRegion": "EU",
+                "Currency": "EUR",
+                "AmountInclVAT": 121.00,
+                "AmountExVAT": 100.00,
+                "VAT": 21.00
+              }`
           },
           {
             role: "user",
@@ -86,7 +118,17 @@ async function processWithGPT4(text: string): Promise<any> {
         throw new Error('No content received from GPT-4')
       }
       
-      return JSON.parse(content)
+      const data = JSON.parse(content)
+      
+      // Calculate quarter based on month
+      if (data.InvoiceMonth) {
+        const month = parseInt(data.InvoiceMonth)
+        if (month >= 1 && month <= 12) {
+          data.Quarter = `Q${Math.ceil(month / 3)}`
+        }
+      }
+      
+      return data
       
     } catch (error) {
       console.error('GPT-4 processing error:', error)
@@ -96,6 +138,40 @@ async function processWithGPT4(text: string): Promise<any> {
       }
       await new Promise(resolve => setTimeout(resolve, 1000 * retryCount))
     }
+  }
+}
+
+// Function to analyze region from country
+async function analyzeRegionFromCountry(country: string): Promise<string> {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4-turbo-preview",
+      messages: [
+        {
+          role: "system",
+          content: `Analyze the following country and determine the VAT region. 
+          Return ONLY one of these values:
+          - EU (for European Union countries)
+          - UK (for United Kingdom)
+          - US (for United States)
+          - Other (for all other countries)
+          
+          If the country is unclear or missing, return 'EU' as default.`
+        },
+        {
+          role: "user",
+          content: country || 'No country provided'
+        }
+      ],
+      temperature: 0.1
+    })
+
+    const region = completion.choices[0].message.content?.trim() || 'EU'
+    console.log('📍 Analyzed region from country:', { country, region })
+    return region
+  } catch (error) {
+    console.error('❌ Error analyzing region:', error)
+    return 'EU' // Default to EU if there's an error
   }
 }
 
@@ -156,14 +232,60 @@ async function processInvoice(fileUrl: string) {
 
     console.log(`✅ Extracted ${extractedText.length} characters of text`)
 
+    // Log Azure document fields for debugging
+    console.log('📄 Azure Document Fields:', {
+      hasDocuments: !!result.documents,
+      documentCount: result.documents?.length,
+      fields: result.documents?.[0]?.fields ? Object.keys(result.documents[0].fields) : [],
+      vendorAddress: result.documents?.[0]?.fields?.VendorAddress,
+      billingAddress: result.documents?.[0]?.fields?.BillingAddress,
+      shippingAddress: result.documents?.[0]?.fields?.ShippingAddress
+    })
+
+    // Extract country from Azure result with detailed logging
+    const vendorAddress = result.documents?.[0]?.fields?.VendorAddress
+    const billingAddress = result.documents?.[0]?.fields?.BillingAddress
+    const shippingAddress = result.documents?.[0]?.fields?.ShippingAddress
+
+    console.log('🏢 Azure Address Details:', {
+      vendorAddress: vendorAddress ? {
+        hasValue: !!vendorAddress.value,
+        country: vendorAddress.value?.country,
+        fullAddress: vendorAddress.value
+      } : 'Not found',
+      billingAddress: billingAddress ? {
+        hasValue: !!billingAddress.value,
+        country: billingAddress.value?.country,
+        fullAddress: billingAddress.value
+      } : 'Not found',
+      shippingAddress: shippingAddress ? {
+        hasValue: !!shippingAddress.value,
+        country: shippingAddress.value?.country,
+        fullAddress: shippingAddress.value
+      } : 'Not found'
+    })
+
+    const country = vendorAddress?.value?.country || 
+                   billingAddress?.value?.country ||
+                   shippingAddress?.value?.country
+
+    console.log('🌍 Final extracted country:', country)
+
+    // Analyze region from country using GPT-4
+    const vatRegion = await analyzeRegionFromCountry(country)
+
     // Process with GPT-4
     console.log('🤖 Processing with GPT-4...')
     const extractedData = await processWithGPT4(extractedText)
     console.log('✅ GPT-4 processing completed')
 
+    // Update the extracted data with the analyzed region
     const response = {
       success: true,
-      data: extractedData,
+      data: {
+        ...extractedData,
+        VATRegion: vatRegion // Override the region with our analyzed value
+      },
       rawText: extractedText,
       fileUrl
     }
@@ -377,9 +499,19 @@ Required fields to extract:
 - VAT: The VAT amount
 
 Rules for extraction:
-1. Date extraction: Look for any date format and extract the day number (e.g., "30-05-2024" -> 30)
-2. Month extraction: Look for any date format and extract the month number (e.g., "30-05-2024" -> 5)
-3. VAT/BTW extraction: Look for any percentage values, especially those marked with %, BTW, or VAT
+1. Date extraction: 
+   - Look for any date format (DD-MM-YYYY, YYYY-MM-DD, DD/MM/YYYY, etc.)
+   - Extract the day number (e.g., "30-05-2024" -> 30)
+   - Extract the month number (e.g., "30-05-2024" -> 5)
+   - Extract the year (e.g., "30-05-2024" -> 2024)
+   - If multiple dates found, prefer the invoice date over other dates
+   - If no date found, use the current date
+2. Month format: 
+   - Must be a number (1-12)
+   - Convert month names to numbers (e.g., "January" -> 1)
+3. VAT/BTW extraction: 
+   - Look for any percentage values, especially those marked with %, BTW, or VAT
+   - Extract both the percentage and the amounts
 4. Return ONLY a valid JSON object
 5. Use null for any fields that cannot be found
 6. Do not include any text before or after the JSON object
@@ -613,6 +745,9 @@ interface InvoiceDocument extends AnalyzedDocument {
     Description?: { value: string }
     Currency?: { value: string }
     VATRegion?: { value: string }
+    VendorAddress?: { value: { country: string } }
+    BillingAddress?: { value: { country: string } }
+    ShippingAddress?: { value: { country: string } }
   }
 }
 
@@ -637,12 +772,17 @@ export async function POST(request: Request) {
         }
       }
 
+      // Calculate VAT percentage from VAT and AmountExVAT
+      const vatAmount = parseFloat(result.data.VAT?.toString() || '0');
+      const amountExVat = parseFloat(result.data.AmountExVAT?.toString() || '0');
+      const vatPercentage = amountExVat > 0 ? Math.round((vatAmount / amountExVat) * 100) : 0;
+
       // Format the data to match the ExcelRow interface
       const data = {
         quarter: `Q${Math.floor((new Date(result.data.InvoiceDate).getMonth() / 3)) + 1}`,
         year: result.data.InvoiceYear?.toString() || new Date().getFullYear().toString(),
-        month: new Date(result.data.InvoiceDate).toLocaleString('default', { month: 'long' }),
-        date: new Date(result.data.InvoiceDate).toLocaleDateString(),
+        month: result.data.InvoiceMonth || new Date(result.data.InvoiceDate).getMonth() + 1,
+        date: result.data.InvoiceDate || new Date().getDate(),
         invoiceNumber: result.data.InvoiceNumber || '',
         category: result.data.Category || 'Other',
         supplier: result.data.Supplier || '',
@@ -650,7 +790,7 @@ export async function POST(request: Request) {
         vatRegion: result.data.VATRegion || 'EU',
         currency: result.data.Currency || 'EUR',
         amountInclVat: result.data.AmountInclVAT?.toString() || '0',
-        vatPercentage: `${result.data.VATRate || 0}%`,
+        vatPercentage: `${vatPercentage}%`,
         amountExVat: result.data.AmountExVAT?.toString() || '0',
         vat: result.data.VAT?.toString() || '0'
       }

@@ -34,21 +34,26 @@ interface ProcessingStats {
   startTime: Date | null
 }
 
+interface ExcelColumn {
+  id: keyof ExcelRow;
+  label: string;
+}
+
 interface ExcelRow {
-  quarter: string
-  year: string
-  month: string
-  date: string
-  invoiceNumber: string
-  category: string
-  supplier: string
-  description: string
-  vatRegion: string
-  currency: string
-  amountInclVat: string
-  vatPercentage: string
-  amountExVat: string
-  vat: string
+  quarter: string;
+  year: string;
+  month: string;
+  date: string;
+  invoiceNumber: string;
+  category: string;
+  supplier: string;
+  description: string;
+  vatRegion: string;
+  currency: string;
+  amountInclVat: string;
+  vatPercentage: string;
+  amountExVat: string;
+  vat: string;
 }
 
 interface TableHistory {
@@ -56,6 +61,23 @@ interface TableHistory {
   present: ExcelRow[]
   future: ExcelRow[][]
 }
+
+const excelColumns: ExcelColumn[] = [
+  { id: 'quarter', label: 'Quarter' },
+  { id: 'year', label: 'Year' },
+  { id: 'month', label: 'Month' },
+  { id: 'date', label: 'Date' },
+  { id: 'invoiceNumber', label: 'Invoice Number' },
+  { id: 'category', label: 'Category' },
+  { id: 'supplier', label: 'Supplier' },
+  { id: 'description', label: 'Description' },
+  { id: 'vatRegion', label: 'VAT Region' },
+  { id: 'currency', label: 'Currency' },
+  { id: 'amountInclVat', label: 'Amount (Incl. VAT)' },
+  { id: 'vatPercentage', label: 'VAT %' },
+  { id: 'amountExVat', label: 'Amount (Excl. VAT)' },
+  { id: 'vat', label: 'VAT' }
+];
 
 export default function ProcessingPage() {
   const { user, getIdToken } = useAuth()
@@ -421,12 +443,6 @@ export default function ProcessingPage() {
                     >
                       <ArrowPathIcon className="h-5 w-5" />
                     </button>
-                    <button
-                      onClick={handleConfirm}
-                      className="ml-4 px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700"
-                    >
-                      Confirm
-                    </button>
                   </div>
                 </div>
                 <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
@@ -447,137 +463,44 @@ export default function ProcessingPage() {
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quarter</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Year</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice Number</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Supplier</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">VAT Region</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Currency</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount Incl VAT</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">VAT %</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount Ex VAT</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">VAT</th>
+                        {excelColumns.map((column) => (
+                          <th
+                            key={column.id}
+                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                            style={{ 
+                              minWidth: '100px', 
+                              maxWidth: '300px',
+                              width: 'auto'
+                            }}
+                          >
+                            {column.label}
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                       {tableHistory.present.map((row, index) => (
-                        <tr key={index}>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <input
-                              type="text"
-                              value={row.quarter}
-                              onChange={(e) => handleCellEdit(index, 'quarter', e.target.value)}
-                              className="border-0 focus:ring-0 p-0"
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <input
-                              type="text"
-                              value={row.year}
-                              onChange={(e) => handleCellEdit(index, 'year', e.target.value)}
-                              className="border-0 focus:ring-0 p-0"
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <input
-                              type="text"
-                              value={row.month}
-                              onChange={(e) => handleCellEdit(index, 'month', e.target.value)}
-                              className="border-0 focus:ring-0 p-0"
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <input
-                              type="text"
-                              value={row.date}
-                              onChange={(e) => handleCellEdit(index, 'date', e.target.value)}
-                              className="border-0 focus:ring-0 p-0"
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <input
-                              type="text"
-                              value={row.invoiceNumber}
-                              onChange={(e) => handleCellEdit(index, 'invoiceNumber', e.target.value)}
-                              className="border-0 focus:ring-0 p-0"
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <input
-                              type="text"
-                              value={row.category}
-                              onChange={(e) => handleCellEdit(index, 'category', e.target.value)}
-                              className="border-0 focus:ring-0 p-0"
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <input
-                              type="text"
-                              value={row.supplier}
-                              onChange={(e) => handleCellEdit(index, 'supplier', e.target.value)}
-                              className="border-0 focus:ring-0 p-0"
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <input
-                              type="text"
-                              value={row.description}
-                              onChange={(e) => handleCellEdit(index, 'description', e.target.value)}
-                              className="border-0 focus:ring-0 p-0"
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <input
-                              type="text"
-                              value={row.vatRegion}
-                              onChange={(e) => handleCellEdit(index, 'vatRegion', e.target.value)}
-                              className="border-0 focus:ring-0 p-0"
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <input
-                              type="text"
-                              value={row.currency}
-                              onChange={(e) => handleCellEdit(index, 'currency', e.target.value)}
-                              className="border-0 focus:ring-0 p-0"
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <input
-                              type="text"
-                              value={row.amountInclVat}
-                              onChange={(e) => handleCellEdit(index, 'amountInclVat', e.target.value)}
-                              className="border-0 focus:ring-0 p-0"
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <input
-                              type="text"
-                              value={row.vatPercentage}
-                              onChange={(e) => handleCellEdit(index, 'vatPercentage', e.target.value)}
-                              className="border-0 focus:ring-0 p-0"
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <input
-                              type="text"
-                              value={row.amountExVat}
-                              onChange={(e) => handleCellEdit(index, 'amountExVat', e.target.value)}
-                              className="border-0 focus:ring-0 p-0"
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <input
-                              type="text"
-                              value={row.vat}
-                              onChange={(e) => handleCellEdit(index, 'vat', e.target.value)}
-                              className="border-0 focus:ring-0 p-0"
-                            />
-                          </td>
+                        <tr key={index} className="hover:bg-gray-50">
+                          {excelColumns.map((column) => (
+                            <td
+                              key={column.id}
+                              className="px-6 py-4"
+                              style={{ 
+                                minWidth: '100px', 
+                                maxWidth: '300px',
+                                width: 'auto'
+                              }}
+                            >
+                              <div className="whitespace-normal break-words">
+                                <input
+                                  type="text"
+                                  value={row[column.id]}
+                                  onChange={(e) => handleCellEdit(index, column.id, e.target.value)}
+                                  className="w-full border-0 focus:ring-0 p-0 bg-transparent"
+                                />
+                              </div>
+                            </td>
+                          ))}
                         </tr>
                       ))}
                     </tbody>
@@ -588,8 +511,8 @@ export default function ProcessingPage() {
           </div>
         </div>
 
-        {/* Failed Invoices List */}
-        <div className="bg-white rounded-lg shadow">
+        {/* Failed Invoices List - Simplified */}
+        <div className="bg-white rounded-lg shadow mt-8">
           <div className="px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-medium text-gray-900">Failed Invoices</h2>
           </div>
@@ -609,7 +532,7 @@ export default function ProcessingPage() {
               {invoices
                 .filter(inv => inv.status === 'cancelled')
                 .map((invoice) => (
-                  <div key={invoice.id} className="px-6 py-4 hover:bg-gray-50 cursor-pointer">
+                  <div key={invoice.id} className="px-6 py-4 hover:bg-gray-50">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center">
                         <XCircleIcon className="h-6 w-6 text-red-500" />
@@ -640,26 +563,24 @@ export default function ProcessingPage() {
 
       {/* Confirmation Dialog */}
       {showConfirmDialog && (
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg p-6 max-w-sm w-full">
-            <div className="text-center">
-              <h3 className="text-lg font-medium text-gray-900">Confirm Data</h3>
-              <p className="mt-1 text-sm text-gray-500">
-                Are you sure you want to proceed with the current data? This will be used for the final report.
-              </p>
-            </div>
-            <div className="mt-6 flex justify-end space-x-3">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full">
+            <h3 className="text-lg font-semibold mb-4">Confirm Data</h3>
+            <p className="text-gray-600 mb-4">
+              Please review the data before proceeding to the download page. Are you sure you want to continue?
+            </p>
+            <div className="flex justify-end space-x-4">
               <button
                 onClick={() => setShowConfirmDialog(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
               >
                 Cancel
               </button>
               <button
-                onClick={handleConfirmProceed}
-                className="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700"
+                onClick={handleConfirm}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
               >
-                Confirm and Proceed
+                Confirm
               </button>
             </div>
           </div>
