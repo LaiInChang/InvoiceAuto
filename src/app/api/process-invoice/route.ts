@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/lib/firebase-admin'
-import { AzureKeyCredential, DocumentAnalysisClient } from '@azure/ai-form-recognizer'
+import { AzureKeyCredential, DocumentAnalysisClient, AnalyzedDocument } from '@azure/ai-form-recognizer'
 import OpenAI from 'openai'
 import { v2 as cloudinary } from 'cloudinary'
 import { updateProcessingStatus, clearProcessingStatus } from '../process-status/route'
@@ -67,7 +67,11 @@ async function processWithGPT4(text: string): Promise<any> {
               InvoiceNumber, Category, Supplier, Description, VATRegion, Currency,
               AmountInclVAT, AmountExVAT, VAT
               
-              Return as JSON. Leave empty if not found. Infer Category, VATRegion, and Currency if not explicit.`
+              Rules:
+              1. Date format: Extract the day number from any date format (e.g., from "30-05-2024" extract 30)
+              2. Month format: Extract the month number from any date format (e.g., from "30-05-2024" extract 5)
+              3. VAT/BTW: Look for any percentage values, especially those marked with %, BTW, or VAT
+              4. Return as JSON. Leave empty if not found. Infer Category, VATRegion, and Currency if not explicit.`
           },
           {
             role: "user",
@@ -360,8 +364,8 @@ async function processBatchWithGPT4(texts: string[], batchNumber: number, totalB
 Required fields to extract:
 - InvoiceYear: The year of the invoice (YYYY)
 - InvoiceQuarter: The quarter number (1-4)
-- InvoiceMonth: The month number (MM)
-- InvoiceDate: The day of the month (DD)
+- InvoiceMonth: The month number (MM) - Extract from any date format (e.g., from "30-05-2024" extract 5)
+- InvoiceDate: The day number (DD) - Extract from any date format (e.g., from "30-05-2024" extract 30)
 - InvoiceNumber: The invoice number
 - Category: The invoice category (infer if not explicit)
 - Supplier: The supplier name
@@ -372,19 +376,21 @@ Required fields to extract:
 - AmountExVAT: The amount excluding VAT
 - VAT: The VAT amount
 
-Important:
-1. Return ONLY a valid JSON object
-2. Use null for any fields that cannot be found
-3. Do not include any text before or after the JSON object
-4. Ensure all numeric values are numbers, not strings
-5. Format dates as numbers (e.g., "01" for January)
+Rules for extraction:
+1. Date extraction: Look for any date format and extract the day number (e.g., "30-05-2024" -> 30)
+2. Month extraction: Look for any date format and extract the month number (e.g., "30-05-2024" -> 5)
+3. VAT/BTW extraction: Look for any percentage values, especially those marked with %, BTW, or VAT
+4. Return ONLY a valid JSON object
+5. Use null for any fields that cannot be found
+6. Do not include any text before or after the JSON object
+7. Ensure all numeric values are numbers, not strings
 
 Example response format:
 {
   "InvoiceYear": 2024,
   "InvoiceQuarter": 1,
-  "InvoiceMonth": 3,
-  "InvoiceDate": 15,
+  "InvoiceMonth": 5,
+  "InvoiceDate": 30,
   "InvoiceNumber": "INV-001",
   "Category": "Office Supplies",
   "Supplier": "Example Corp",
@@ -597,73 +603,107 @@ async function processBatch(fileUrls: string[], batchSize: number): Promise<Batc
   }
 }
 
+interface InvoiceDocument extends AnalyzedDocument {
+  fields: {
+    InvoiceDate?: { value: string }
+    InvoiceTotal?: { value: number }
+    VATRate?: { value: number }
+    InvoiceNumber?: { value: string }
+    VendorName?: { value: string }
+    Description?: { value: string }
+    Currency?: { value: string }
+    VATRegion?: { value: string }
+  }
+}
+
 export async function POST(request: Request) {
   try {
-    console.log('\n🚀 Starting invoice processing request')
+    const { fileUrls, batchNumber, totalBatches, batchSize } = await request.json()
     
-    // Verify Firebase token
-    const authHeader = request.headers.get('Authorization')
-    if (!authHeader?.startsWith('Bearer ')) {
-      console.error('❌ Unauthorized: No Bearer token')
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    console.log(`[API] Processing batch ${batchNumber} of ${totalBatches}`)
+    console.log(`[API] Batch size: ${batchSize}`)
+    console.log(`[API] Files to process: ${fileUrls.length}`)
 
-    const token = authHeader.split('Bearer ')[1]
-    try {
-      await auth.verifyIdToken(token)
-      console.log('✅ Firebase authentication successful')
-    } catch (error) {
-      console.error('❌ Firebase authentication failed:', error)
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
-    }
+    // Process the batch using the robust processing function
+    const batchResult = await processBatch(fileUrls, batchSize)
+    
+    // Transform the results to match the expected format
+    const results = batchResult.results.map(result => {
+      if (!result.success) {
+        return {
+          success: false,
+          fileUrl: result.fileUrl,
+          error: result.error
+        }
+      }
 
-    // Get file URLs from request body
-    const body = await request.json()
-    const { fileUrls, batchSize } = body
-    if (!fileUrls || !Array.isArray(fileUrls) || fileUrls.length === 0) {
-      console.error('❌ Invalid request: No file URLs provided')
-      return NextResponse.json({ error: 'File URLs array is required' }, { status: 400 })
-    }
+      // Format the data to match the ExcelRow interface
+      const data = {
+        quarter: `Q${Math.floor((new Date(result.data.InvoiceDate).getMonth() / 3)) + 1}`,
+        year: result.data.InvoiceYear?.toString() || new Date().getFullYear().toString(),
+        month: new Date(result.data.InvoiceDate).toLocaleString('default', { month: 'long' }),
+        date: new Date(result.data.InvoiceDate).toLocaleDateString(),
+        invoiceNumber: result.data.InvoiceNumber || '',
+        category: result.data.Category || 'Other',
+        supplier: result.data.Supplier || '',
+        description: result.data.Description || '',
+        vatRegion: result.data.VATRegion || 'EU',
+        currency: result.data.Currency || 'EUR',
+        amountInclVat: result.data.AmountInclVAT?.toString() || '0',
+        vatPercentage: `${result.data.VATRate || 0}%`,
+        amountExVat: result.data.AmountExVAT?.toString() || '0',
+        vat: result.data.VAT?.toString() || '0'
+      }
 
-    console.log(`📄 Received ${fileUrls.length} file URLs`)
-
-    // Validate all URLs before processing
-    const validUrls = fileUrls.filter(url => url && typeof url === 'string')
-    if (validUrls.length === 0) {
-      console.error('❌ No valid file URLs provided')
-      return NextResponse.json({ error: 'No valid file URLs provided' }, { status: 400 })
-    }
-
-    console.log(`✅ Validated ${validUrls.length} file URLs`)
-
-    // Process invoices in batches
-    const { results, failedUrls, totalBatches, batchSize: actualBatchSize } = await processBatch(validUrls, batchSize)
-
-    console.log('\n✨ Request completed successfully')
-    return NextResponse.json({
-      success: failedUrls.length === 0,
-      results,
-      failedUrls,
-      totalProcessed: results.length,
-      totalFailed: failedUrls.length,
-      totalInvoices: validUrls.length,
-      totalBatches,
-      batchSize: actualBatchSize
+      return {
+        success: true,
+        fileUrl: result.fileUrl,
+        data
+      }
     })
 
+    console.log('[API] Batch processing completed:', results)
+    return NextResponse.json({ results })
   } catch (error) {
-    console.error('❌ API route error:', {
-      error,
-      message: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    })
+    console.error('[API] Error in process-invoice route:', error)
     return NextResponse.json(
-      { 
-        error: 'Failed to process invoices',
-        details: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
-      },
+      { error: error instanceof Error ? error.message : 'Failed to process invoices' },
       { status: 500 }
     )
+  }
+}
+
+async function categorizeInvoice(description: string, supplier: string): Promise<string> {
+  console.log('[GPT] Preparing prompt for categorization')
+  
+  const prompt = `Categorize this invoice based on the following information:
+    Description: ${description}
+    Supplier: ${supplier}
+    
+    Please categorize it into one of these categories:
+    - Office Supplies
+    - Equipment
+    - Services
+    - Software
+    - Travel
+    - Utilities
+    - Marketing
+    - Other
+    
+    Respond with just the category name.`
+
+  try {
+    console.log('[GPT] Sending request to OpenAI')
+    const completion = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [{ role: "user", content: prompt }],
+    })
+
+    const category = completion.choices[0].message.content?.trim() || 'Other'
+    console.log('[GPT] Received category:', category)
+    return category
+  } catch (error) {
+    console.error('[GPT] Error during categorization:', error)
+    return 'Other'
   }
 } 
