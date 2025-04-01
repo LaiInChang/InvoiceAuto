@@ -391,7 +391,14 @@ export default function DashboardPage() {
         <div className="bg-white rounded-lg shadow">
           <div className="px-6 py-4 border-b border-gray-200">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-medium text-gray-900">Pending Invoices</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-medium text-gray-900">Pending Invoices</h2>
+                {invoices.length > 0 && (
+                  <span className="px-2 py-1 text-sm font-medium bg-blue-100 text-blue-800 rounded-full">
+                    {invoices.length}
+                  </span>
+                )}
+              </div>
               <div className="flex space-x-3">
                 {invoices.length > 0 && (
                   <>
