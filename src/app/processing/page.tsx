@@ -106,7 +106,6 @@ export default function ProcessingPage() {
     future: []
   })
   const [isEditing, setIsEditing] = useState(false)
-  const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   const [isExcelGenerated, setIsExcelGenerated] = useState(false)
 
   useEffect(() => {
@@ -353,6 +352,23 @@ export default function ProcessingPage() {
   }
 
   const handleConfirm = () => {
+    // Calculate processing time
+    const endTime = new Date()
+    const processingTime = stats.startTime ? (endTime.getTime() - stats.startTime.getTime()) / 1000 : 0
+
+    // Prepare processing result
+    const processingResult = {
+      successCount: tableData.length,
+      failedCount: invoices.filter(inv => inv.status === 'cancelled').length,
+      processingTime: processingTime,
+      processedInvoices: tableData
+    }
+
+    // Store in localStorage
+    console.log('Processing Page - Storing processing result:', processingResult)
+    localStorage.setItem('processingResult', JSON.stringify(processingResult))
+
+    // Navigate to download page
     router.push('/download')
   }
 
@@ -468,7 +484,7 @@ export default function ProcessingPage() {
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-medium text-gray-900">Processed Invoices</h3>
                   <button
-                    onClick={() => setShowConfirmDialog(true)}
+                    onClick={handleConfirm}
                     disabled={isProcessing || tableData.length === 0}
                     className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
                       isProcessing || tableData.length === 0
@@ -614,34 +630,6 @@ export default function ProcessingPage() {
           </button>
         </div>
       </div>
-
-      {/* Confirmation Dialog */}
-      {showConfirmDialog && (
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Confirm and Continue
-            </h3>
-            <p className="text-sm text-gray-500 mb-6">
-              Are you sure you want to proceed to download the processed data?
-            </p>
-            <div className="flex justify-end space-x-3">
-              <button
-                onClick={() => setShowConfirmDialog(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirm}
-                className="px-4 py-2 text-sm font-medium text-white bg-primary-600 border border-transparent rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
-              >
-                Continue to Download
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 } 
