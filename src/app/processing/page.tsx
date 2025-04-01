@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore'
@@ -32,6 +32,7 @@ interface ProcessingStats {
   processedCount: number
   totalCount: number
   startTime: Date | null
+  totalProcessingTime: number
 }
 
 interface ExcelColumn {
@@ -92,12 +93,15 @@ export default function ProcessingPage() {
   const [error, setError] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const BATCH_SIZE = 10
+  const [progress, setProgress] = useState(0)
+  const progressIntervalRef = useRef<NodeJS.Timeout>()
   const [stats, setStats] = useState<ProcessingStats>({
     currentBatch: 0,
     totalBatches: 0,
     processedCount: 0,
     totalCount: 0,
-    startTime: null
+    startTime: null,
+    totalProcessingTime: 0
   })
   const [tableData, setTableData] = useState<ExcelRow[]>([])
   const [tableHistory, setTableHistory] = useState<TableHistory>({
@@ -353,15 +357,14 @@ export default function ProcessingPage() {
 
   const handleConfirm = async () => {
     try {
-      // Calculate processing time
-      const endTime = new Date()
-      const processingTime = stats.startTime ? (endTime.getTime() - stats.startTime.getTime()) / 1000 : 0
+      console.log('Confirm clicked at:', new Date().toISOString())
 
-      // Prepare processing result
+      // Prepare processing result with start and end times
       const processingResult = {
         successCount: tableData.length,
         failedCount: invoices.filter(inv => inv.status === 'cancelled').length,
-        processingTime: processingTime,
+        startTime: stats.startTime?.toISOString(),
+        endTime: new Date().toISOString(),
         processedInvoices: tableData
       }
 
@@ -403,11 +406,42 @@ export default function ProcessingPage() {
     }
   }
 
+  const startProgressSimulation = (totalBatches: number) => {
+    // Clear any existing interval
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current)
+    }
+
+    // Calculate the total time for simulation
+    // Base time: 20 seconds per batch
+    // Additional time for multiple batches to make it feel more realistic
+    const baseTime = 20000 // 20 seconds per batch
+    const additionalTime = totalBatches > 1 ? (totalBatches - 1) * 10000 : 0 // Add 10 seconds per additional batch
+    const totalTime = (baseTime * totalBatches) + additionalTime
+
+    // Calculate interval to get exactly 99 steps
+    const interval = totalTime / 99
+
+    // Start the simulation
+    progressIntervalRef.current = setInterval(() => {
+      setProgress(prev => {
+        const nextProgress = prev + 1 // Increment by 1%
+        if (nextProgress >= 99) {
+          clearInterval(progressIntervalRef.current)
+          return 99 // Stop at 99% until actual completion
+        }
+        return nextProgress
+      })
+    }, interval)
+  }
+
   const startProcessing = async () => {
     if (invoices.length === 0) return
 
     const startTime = new Date()
+    console.log('Processing started at:', startTime.toISOString())
     setIsProcessing(true)
+    setProgress(0) // Reset progress
     setStats(prev => ({ ...prev, startTime }))
     setError(null)
 
@@ -418,6 +452,9 @@ export default function ProcessingPage() {
       for (let i = 0; i < pendingInvoices.length; i += BATCH_SIZE) {
         batches.push(pendingInvoices.slice(i, i + BATCH_SIZE))
       }
+
+      // Start progress simulation based on number of batches
+      startProgressSimulation(batches.length)
 
       for (let i = 0; i < batches.length; i++) {
         setStats(prev => ({ ...prev, currentBatch: i + 1 }))
@@ -435,17 +472,33 @@ export default function ProcessingPage() {
         }
       }
 
-      // Log processing time
+      // Log the end time
       const endTime = new Date()
-      const processingTime = endTime.getTime() - startTime.getTime()
-      console.log(`Total processing time: ${processingTime / 1000} seconds`)
+      console.log('Processing ended at:', endTime.toISOString())
     } catch (error) {
       console.error('Error during batch processing:', error)
       setError('Failed to process invoices')
     } finally {
       setIsProcessing(false)
+      // Clear the progress interval
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current)
+      }
+      // Only set to 100% when actually complete
+      if (!error) {
+        setProgress(100)
+      }
     }
   }
+
+  // Clean up interval on component unmount
+  useEffect(() => {
+    return () => {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current)
+      }
+    }
+  }, [])
 
   const getStatusColor = (status: Invoice['status']) => {
     switch (status) {
@@ -477,13 +530,13 @@ export default function ProcessingPage() {
                 <div className="flex justify-between mb-2">
                   <span className="text-sm font-medium text-gray-700">Processing Progress</span>
                   <span className="text-sm font-medium text-gray-700">
-                    {Math.round((stats.processedCount / stats.totalCount) * 100)}%
+                    {progress}%
                   </span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2.5">
                   <div 
                     className="bg-primary-600 h-2.5 rounded-full transition-all duration-300"
-                    style={{ width: `${(stats.processedCount / stats.totalCount) * 100}%` }}
+                    style={{ width: `${progress}%` }}
                   ></div>
                 </div>
               </div>

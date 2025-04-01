@@ -57,7 +57,6 @@ const excelColumns: ExcelColumn[] = [
 interface ProcessingResult {
   successCount: number
   failedCount: number
-  processingTime: number
   processedInvoices: any[]
 }
 
@@ -172,8 +171,8 @@ export default function DownloadPage() {
               <ArrowLeftIcon className="h-5 w-5" />
             </button>
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Download Data</h1>
-              <p className="mt-2 text-sm text-gray-600">Download processed invoice data</p>
+              <h1 className="text-3xl font-bold text-gray-900">Download Results</h1>
+              <p className="mt-2 text-sm text-gray-600">Your processed invoices are ready to download</p>
             </div>
           </div>
         </div>
@@ -229,7 +228,7 @@ export default function DownloadPage() {
                   </div>
                 </div>
                 <br></br>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="bg-green-50 p-6 rounded-lg">
                     <div className="flex items-center">
                       <CheckCircleIcon className="h-8 w-8 text-green-500 mr-3" />
@@ -248,18 +247,7 @@ export default function DownloadPage() {
                       </div>
                     </div>
                   </div>
-                  <div className="bg-blue-50 p-6 rounded-lg">
-                    <div className="flex items-center">
-                      <ClockIcon className="h-8 w-8 text-blue-500 mr-3" />
-                      <div>
-                        <h3 className="text-lg font-medium text-blue-800">Processing Time</h3>
-                        <p className="text-2xl font-bold text-blue-900">{result.processingTime}s</p>
-                      </div>
-                    </div>
-                  </div>
                 </div>
-
-                
               </div>
             )}
           </div>
