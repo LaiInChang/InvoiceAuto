@@ -357,6 +357,36 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* Process Invoices Button */}
+        {invoices.length > 0 && (
+          <div className="flex justify-center mb-8">
+            <button
+              onClick={handleProcessInvoices}
+              disabled={isRemovingAll || isUploading}
+              className={`px-8 py-4 text-lg font-semibold rounded-lg shadow-lg transition-all duration-200 ${
+                isRemovingAll || isUploading
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-700 hover:shadow-xl'
+              } text-white flex items-center gap-2`}
+            >
+              {isUploading ? (
+                <>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                  Process Invoices
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
+
         {/* Invoices List */}
         <div className="bg-white rounded-lg shadow">
           <div className="px-6 py-4 border-b border-gray-200">
@@ -379,13 +409,7 @@ export default function DashboardPage() {
                         'Cancel All'
                       )}
                     </button>
-                    <button
-                      onClick={handleProcessInvoices}
-                      disabled={isRemovingAll || isUploading}
-                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Process Invoices
-                    </button>
+                   
                   </>
                 )}
               </div>
