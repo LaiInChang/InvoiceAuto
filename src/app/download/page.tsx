@@ -7,6 +7,52 @@ import { collection, query, where, getDocs } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { ArrowLeftIcon, DocumentArrowDownIcon, HomeIcon, CheckCircleIcon, XCircleIcon, ClockIcon } from '@heroicons/react/24/outline'
 import * as XLSX from 'xlsx'
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { addDoc } from 'firebase/firestore'
+
+interface ExcelColumn {
+  id: keyof ExcelRow;
+  label: string;
+  width?: number;
+  minWidth?: number;
+  maxWidth?: number;
+}
+
+interface ExcelRow {
+  no: number;
+  quarter: string;
+  year: string;
+  month: number;
+  date: number;
+  invoiceNumber: string;
+  category: string;
+  supplier: string;
+  description: string;
+  vatRegion: string;
+  currency: string;
+  amountInclVat: string;
+  vatPercentage: string;
+  amountExVat: string;
+  vat: string;
+}
+
+const excelColumns: ExcelColumn[] = [
+  { id: 'no', label: 'No.', minWidth: 60, maxWidth: 80 },
+  { id: 'quarter', label: 'Quarter', minWidth: 80, maxWidth: 100 },
+  { id: 'year', label: 'Year', minWidth: 90, maxWidth: 120 },
+  { id: 'month', label: 'Month', minWidth: 80, maxWidth: 100 },
+  { id: 'date', label: 'Date', minWidth: 80, maxWidth: 100 },
+  { id: 'invoiceNumber', label: 'Invoice Number', minWidth: 150, maxWidth: 400 },
+  { id: 'category', label: 'Category', minWidth: 120, maxWidth: 200 },
+  { id: 'supplier', label: 'Supplier', minWidth: 180, maxWidth: 400 },
+  { id: 'description', label: 'Description', minWidth: 200, maxWidth: 450 },
+  { id: 'vatRegion', label: 'VAT Region', minWidth: 130, maxWidth: 150 },
+  { id: 'currency', label: 'Currency', minWidth: 80, maxWidth: 100 },
+  { id: 'amountInclVat', label: 'Amount (Incl. VAT)', minWidth: 120, maxWidth: 200 },
+  { id: 'vatPercentage', label: 'VAT %', minWidth: 80, maxWidth: 100 },
+  { id: 'amountExVat', label: 'Amount (Excl. VAT)', minWidth: 120, maxWidth: 200 },
+  { id: 'vat', label: 'VAT', minWidth: 100, maxWidth: 150 }
+];
 
 interface ProcessingResult {
   successCount: number
@@ -47,115 +93,82 @@ export default function DownloadPage() {
     setIsLoading(false)
   }, [user, router])
 
-  const handleDownloadCSV = async () => {
-    if (!result?.processedInvoices) {
-      console.log('Download Page - No processed invoices available for CSV download')
+  const handleDownloadCSV = () => {
+    if (!result || result.processedInvoices.length === 0) {
+      console.log('No processed invoices available for CSV download')
       return
     }
-    console.log('Download Page - Starting CSV download with data:', result.processedInvoices)
 
-    try {
-      // Convert invoices data to CSV format
-      const excelData = result.processedInvoices.map((invoice, index) => ({
-        'No.': index + 1,
-        'Quarter': invoice.quarter || '',
-        'Year': invoice.year || '',
-        'Month': invoice.month || '',
-        'Date': invoice.date || '',
-        'Invoice Number': invoice.invoiceNumber || '',
-        'Category': invoice.category || '',
-        'Supplier': invoice.supplier || '',
-        'Description': invoice.description || '',
-        'VAT Region': invoice.vatRegion || '',
-        'Currency': invoice.currency || '',
-        'Amount (Incl. VAT)': invoice.amountInclVat || '',
-        'VAT %': invoice.vatPercentage || '',
-        'Amount (Excl. VAT)': invoice.amountExVat || '',
-        'VAT': invoice.vat || ''
-      }))
+    console.log('Downloading CSV with data:', result.processedInvoices)
+    const headers = excelColumns.map(col => col.label)
+    const rows = result.processedInvoices.map(row => 
+      excelColumns.map(col => row[col.id])
+    )
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(cell => `"${cell}"`).join(','))
+      .join('\n')
 
-      // Create CSV content
-      const headers = Object.keys(excelData[0])
-      const csvContent = [
-        headers.join(','),
-        ...excelData.map(row => headers.map(header => row[header as keyof typeof row]).join(','))
-      ].join('\n')
-
-      // Create and trigger download
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-      const link = document.createElement('a')
-      const url = URL.createObjectURL(blob)
-      link.setAttribute('href', url)
-      link.setAttribute('download', `invoice_data_${new Date().toISOString().split('T')[0]}.csv`)
-      link.style.visibility = 'hidden'
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-    } catch (error) {
-      console.error('Error downloading CSV:', error)
-      setError('Failed to download CSV')
-    }
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `invoice_report_${new Date().toISOString().split('T')[0]}.csv`
+    link.click()
   }
 
   const handleDownloadExcel = async () => {
-    if (!result?.processedInvoices) {
-      console.log('Download Page - No processed invoices available for Excel download')
+    if (!result || result.processedInvoices.length === 0) {
+      console.log('No processed invoices available for Excel download')
       return
     }
-    console.log('Download Page - Starting Excel download with data:', result.processedInvoices)
 
     try {
-      // Convert invoices data to Excel format
-      const excelData = result.processedInvoices.map((invoice, index) => ({
-        'No.': index + 1,
-        'Quarter': invoice.quarter || '',
-        'Year': invoice.year || '',
-        'Month': invoice.month || '',
-        'Date': invoice.date || '',
-        'Invoice Number': invoice.invoiceNumber || '',
-        'Category': invoice.category || '',
-        'Supplier': invoice.supplier || '',
-        'Description': invoice.description || '',
-        'VAT Region': invoice.vatRegion || '',
-        'Currency': invoice.currency || '',
-        'Amount (Incl. VAT)': invoice.amountInclVat || '',
-        'VAT %': invoice.vatPercentage || '',
-        'Amount (Excl. VAT)': invoice.amountExVat || '',
-        'VAT': invoice.vat || ''
-      }))
+      console.log('Starting Excel generation process...')
+      console.log('Data to be processed:', result.processedInvoices)
+      
+      // Get Firebase token
+      console.log('Getting Firebase token...')
+      const idToken = await user?.getIdToken()
+      console.log('Firebase token obtained:', idToken ? 'Yes' : 'No')
 
-      // Create workbook and worksheet
-      const wb = XLSX.utils.book_new()
-      const ws = XLSX.utils.json_to_sheet(excelData)
+      // Generate Excel file through API
+      console.log('Sending request to /api/generate-excel...')
+      const response = await fetch('/api/generate-excel', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${idToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+          data: result.processedInvoices.map((invoice, index) => ({
+            ...invoice,
+            no: index + 1
+          }))
+        })
+      })
 
-      // Set column widths
-      const colWidths = [
-        { wch: 5 },  // No.
-        { wch: 10 }, // Quarter
-        { wch: 10 }, // Year
-        { wch: 10 }, // Month
-        { wch: 10 }, // Date
-        { wch: 20 }, // Invoice Number
-        { wch: 20 }, // Category
-        { wch: 30 }, // Supplier
-        { wch: 40 }, // Description
-        { wch: 15 }, // VAT Region
-        { wch: 10 }, // Currency
-        { wch: 15 }, // Amount (Incl. VAT)
-        { wch: 10 }, // VAT %
-        { wch: 15 }, // Amount (Excl. VAT)
-        { wch: 15 }  // VAT
-      ]
-      ws['!cols'] = colWidths
+      console.log('API Response status:', response.status)
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error('API Error:', errorData)
+        throw new Error(errorData.error || 'Failed to generate Excel file')
+      }
 
-      // Add worksheet to workbook
-      XLSX.utils.book_append_sheet(wb, ws, 'Invoices')
+      const { fileUrl, fileName } = await response.json()
+      console.log('API Response:', { fileUrl, fileName })
 
-      // Generate Excel file
-      XLSX.writeFile(wb, `invoice_data_${new Date().toISOString().split('T')[0]}.xlsx`)
+      // Download the file
+      console.log('Creating download link...')
+      const link = document.createElement('a')
+      link.href = fileUrl
+      link.download = fileName
+      console.log('Triggering download...')
+      link.click()
+      console.log('Download process completed')
+
     } catch (error) {
-      console.error('Error downloading Excel:', error)
-      setError('Failed to download Excel')
+      console.error('Error in handleDownloadExcel:', error)
+      setError(error instanceof Error ? error.message : 'Failed to generate Excel file')
     }
   }
 
@@ -165,7 +178,7 @@ export default function DownloadPage() {
         <div className="mb-8">
           <div className="flex items-center">
             <button
-              onClick={() => router.back()}
+              onClick={() => router.push('/dashboard')}
               className="mr-4 p-2 text-gray-500 hover:text-gray-700"
             >
               <ArrowLeftIcon className="h-5 w-5" />

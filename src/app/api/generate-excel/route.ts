@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { auth, storage } from '@/lib/firebase-admin';
+import { auth, storage, db } from '@/lib/firebase-admin';
 import * as XLSX from 'xlsx';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -12,7 +12,8 @@ export async function POST(request: Request) {
     }
 
     const token = authHeader.split('Bearer ')[1];
-    await auth.verifyIdToken(token);
+    const decodedToken = await auth.verifyIdToken(token);
+    const userId = decodedToken.uid;
 
     // Get request body
     const { data } = await request.json();
@@ -61,6 +62,21 @@ export async function POST(request: Request) {
       action: 'read',
       expires: Date.now() + 7 * 24 * 60 * 60 * 1000 // URL expires in 7 days
     });
+
+    // Try to save report metadata to Firestore, but don't fail if it doesn't work
+    try {
+      const reportData = {
+        userId,
+        fileName,
+        fileUrl: url,
+        processedAt: new Date()
+      };
+
+      await db.collection('reports').add(reportData);
+    } catch (firestoreError) {
+      console.error('Error saving to Firestore:', firestoreError);
+      // Continue execution even if Firestore save fails
+    }
 
     return NextResponse.json({ fileUrl: url, fileName });
   } catch (error) {

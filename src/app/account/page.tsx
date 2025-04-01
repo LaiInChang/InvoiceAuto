@@ -46,7 +46,8 @@ interface Report {
   fileName: string
   fileUrl: string
   processedAt: Date
-  results: any
+  userId: string
+  data?: any
 }
 
 const EU_COUNTRIES = [
@@ -196,12 +197,29 @@ export default function Account() {
             data: doc.data()
           }))
         })
-        const reportsData = reportsSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          processedAt: doc.data().processedAt?.toDate() || new Date()
-        })) as Report[]
-        console.log('Reports fetched:', reportsData.length)
+        const reportsData = reportsSnapshot.docs.map(doc => {
+          const data = doc.data()
+          console.log('Processing report document:', {
+            id: doc.id,
+            fileName: data.fileName,
+            fileUrl: data.fileUrl,
+            processedAt: data.processedAt,
+            userId: data.userId,
+            data: data.data
+          })
+          return {
+            id: doc.id,
+            ...data,
+            processedAt: data.processedAt?.toDate() || new Date()
+          }
+        }) as Report[]
+        console.log('Final reports data:', reportsData.map(report => ({
+          id: report.id,
+          fileName: report.fileName,
+          fileUrl: report.fileUrl,
+          processedAt: report.processedAt,
+          userId: report.userId
+        })))
         setReports(reportsData)
         setLoadingReports(false)
 
