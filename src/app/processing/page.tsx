@@ -37,13 +37,17 @@ interface ProcessingStats {
 interface ExcelColumn {
   id: keyof ExcelRow;
   label: string;
+  width?: number;
+  minWidth?: number;
+  maxWidth?: number;
 }
 
 interface ExcelRow {
+  no: number;
   quarter: string;
   year: string;
-  month: string;
-  date: string;
+  month: number;
+  date: number;
   invoiceNumber: string;
   category: string;
   supplier: string;
@@ -63,20 +67,21 @@ interface TableHistory {
 }
 
 const excelColumns: ExcelColumn[] = [
-  { id: 'quarter', label: 'Quarter' },
-  { id: 'year', label: 'Year' },
-  { id: 'month', label: 'Month' },
-  { id: 'date', label: 'Date' },
-  { id: 'invoiceNumber', label: 'Invoice Number' },
-  { id: 'category', label: 'Category' },
-  { id: 'supplier', label: 'Supplier' },
-  { id: 'description', label: 'Description' },
-  { id: 'vatRegion', label: 'VAT Region' },
-  { id: 'currency', label: 'Currency' },
-  { id: 'amountInclVat', label: 'Amount (Incl. VAT)' },
-  { id: 'vatPercentage', label: 'VAT %' },
-  { id: 'amountExVat', label: 'Amount (Excl. VAT)' },
-  { id: 'vat', label: 'VAT' }
+  { id: 'no', label: 'No.', minWidth: 60, maxWidth: 80 },
+  { id: 'quarter', label: 'Quarter', minWidth: 80, maxWidth: 100 },
+  { id: 'year', label: 'Year', minWidth: 90, maxWidth: 120 },
+  { id: 'month', label: 'Month', minWidth: 80, maxWidth: 100 },
+  { id: 'date', label: 'Date', minWidth: 80, maxWidth: 100 },
+  { id: 'invoiceNumber', label: 'Invoice Number', minWidth: 150, maxWidth: 400 },
+  { id: 'category', label: 'Category', minWidth: 120, maxWidth: 200 },
+  { id: 'supplier', label: 'Supplier', minWidth: 180, maxWidth: 400 },
+  { id: 'description', label: 'Description', minWidth: 200, maxWidth: 450 },
+  { id: 'vatRegion', label: 'VAT Region', minWidth: 130, maxWidth: 150 },
+  { id: 'currency', label: 'Currency', minWidth: 80, maxWidth: 100 },
+  { id: 'amountInclVat', label: 'Amount (Incl. VAT)', minWidth: 120, maxWidth: 200 },
+  { id: 'vatPercentage', label: 'VAT %', minWidth: 80, maxWidth: 100 },
+  { id: 'amountExVat', label: 'Amount (Excl. VAT)', minWidth: 120, maxWidth: 200 },
+  { id: 'vat', label: 'VAT', minWidth: 100, maxWidth: 150 }
 ];
 
 export default function ProcessingPage() {
@@ -186,10 +191,23 @@ export default function ProcessingPage() {
           console.log('Processing result:', result)
           return result.success && result.data
         })
-        .map((result: ProcessResult) => {
-          console.log('Mapped data:', result.data)
-          return result.data
-        })
+        .map((result: ProcessResult, index: number) => ({
+          no: tableData.length + index + 1,
+          quarter: result.data.quarter,
+          year: result.data.year,
+          month: result.data.month,
+          date: result.data.date,
+          invoiceNumber: result.data.invoiceNumber,
+          category: result.data.category,
+          supplier: result.data.supplier,
+          description: result.data.description,
+          vatRegion: result.data.vatRegion,
+          currency: result.data.currency,
+          amountInclVat: result.data.amountInclVat,
+          vatPercentage: result.data.vatPercentage,
+          amountExVat: result.data.amountExVat,
+          vat: result.data.vat
+        }))
 
       console.log('New rows to add:', newRows)
 
@@ -287,19 +305,10 @@ export default function ProcessingPage() {
     }))
   }, [])
 
-  const handleCellEdit = (rowIndex: number, field: keyof ExcelRow, value: string) => {
-    setTableHistory(prev => {
-      const newPresent = [...prev.present]
-      newPresent[rowIndex] = {
-        ...newPresent[rowIndex],
-        [field]: value
-      }
-      return {
-        past: [...prev.past, prev.present],
-        present: newPresent,
-        future: []
-      }
-    })
+  const handleInputChange = (index: number, field: keyof ExcelRow, value: string) => {
+    const newData = [...tableData];
+    newData[index] = { ...newData[index], [field]: value };
+    setTableData(newData);
   }
 
   const handleConfirm = () => {
@@ -460,16 +469,16 @@ export default function ProcessingPage() {
                   </div>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
+                  <table className="min-w-full border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50">
                         {excelColumns.map((column) => (
                           <th
                             key={column.id}
-                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                            style={{ 
-                              minWidth: '100px', 
-                              maxWidth: '300px',
+                            className="px-4 py-3 text-left text-sm font-medium text-gray-500 border-b"
+                            style={{
+                              minWidth: column.minWidth || 100,
+                              maxWidth: column.maxWidth || 450,
                               width: 'auto'
                             }}
                           >
@@ -478,26 +487,34 @@ export default function ProcessingPage() {
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {tableHistory.present.map((row, index) => (
-                        <tr key={index} className="hover:bg-gray-50">
+                    <tbody>
+                      {tableData.map((row, index) => (
+                        <tr key={index} className="border-b hover:bg-gray-50">
                           {excelColumns.map((column) => (
                             <td
                               key={column.id}
-                              className="px-6 py-4"
-                              style={{ 
-                                minWidth: '100px', 
-                                maxWidth: '300px',
+                              className="px-4 py-3 text-sm border-b"
+                              style={{
+                                minWidth: column.minWidth || 100,
+                                maxWidth: column.maxWidth || 450,
                                 width: 'auto'
                               }}
                             >
                               <div className="whitespace-normal break-words">
-                                <input
-                                  type="text"
-                                  value={row[column.id]}
-                                  onChange={(e) => handleCellEdit(index, column.id, e.target.value)}
-                                  className="w-full border-0 focus:ring-0 p-0 bg-transparent"
-                                />
+                                {column.id === 'no' ? (
+                                  <span className="font-medium">{index + 1}</span>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    value={row[column.id]}
+                                    onChange={(e) => handleInputChange(index, column.id, e.target.value)}
+                                    className="w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 whitespace-normal break-words"
+                                    style={{
+                                      minHeight: '2.5rem',
+                                      height: 'auto'
+                                    }}
+                                  />
+                                )}
                               </div>
                             </td>
                           ))}

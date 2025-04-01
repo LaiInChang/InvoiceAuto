@@ -81,13 +81,7 @@ async function processWithGPT4(text: string): Promise<any> {
               3. VAT/BTW extraction: 
                  - Look for any percentage values, especially those marked with %, BTW, or VAT
                  - Extract both the percentage and the amounts
-              4. Quarter calculation:
-                 - Calculate based on the month number:
-                   * Q1: January (1) to March (3)
-                   * Q2: April (4) to June (6)
-                   * Q3: July (7) to September (9)
-                   * Q4: October (10) to December (12)
-              5. Return as JSON. Leave empty if not found. Infer Category, VATRegion, and Currency if not explicit.
+              4. Return as JSON. Leave empty if not found. Infer Category, VATRegion, and Currency if not explicit.
               
               Example response format:
               {
@@ -118,17 +112,7 @@ async function processWithGPT4(text: string): Promise<any> {
         throw new Error('No content received from GPT-4')
       }
       
-      const data = JSON.parse(content)
-      
-      // Calculate quarter based on month
-      if (data.InvoiceMonth) {
-        const month = parseInt(data.InvoiceMonth)
-        if (month >= 1 && month <= 12) {
-          data.Quarter = `Q${Math.ceil(month / 3)}`
-        }
-      }
-      
-      return data
+      return JSON.parse(content)
       
     } catch (error) {
       console.error('GPT-4 processing error:', error)
@@ -149,29 +133,45 @@ async function analyzeRegionFromCountry(country: string): Promise<string> {
       messages: [
         {
           role: "system",
-          content: `Analyze the following country and determine the VAT region. 
-          Return ONLY one of these values:
-          - EU (for European Union countries)
-          - UK (for United Kingdom)
-          - US (for United States)
-          - Other (for all other countries)
-          
-          If the country is unclear or missing, return 'EU' as default.`
+          content: `You are a VAT region analyzer. Your task is to determine the VAT region based on the country code or name.
+
+Rules:
+1. If the country is Netherlands (NL), return 'NL'
+2. If the country is United Kingdom (UK/GB), return 'UK'
+3. If the country is United States (US), return 'US'
+4. If the country is Germany (DE), return 'DE'
+5. If the country is Belgium (BE), return 'BE'
+6. If the country is France (FR), return 'FR'
+7. If the country is Spain (ES), return 'ES'
+8. If the country is Italy (IT), return 'IT'
+9. If the country is Poland (PL), return 'PL'
+10. If the country is Switzerland (CH), return 'CH'
+11. If the country is Austria (AT), return 'AT'
+12. For any other EU country, return 'EU'
+13. For any other country, return 'Other'
+
+Important:
+- Return ONLY the region code (NL, UK, US, DE, BE, FR, ES, IT, PL, CH, AT, EU, or Other)
+- Do not include any explanation or additional text
+- If the country is unclear or missing, return 'EU' as default
+- Be strict about the exact country codes/names
+- Consider both country codes and full names (e.g., "Netherlands" or "NL" should both return "NL")`
         },
         {
           role: "user",
           content: country || 'No country provided'
         }
       ],
-      temperature: 0.1
+      temperature: 0.1, // Lower temperature for more consistent results
+      max_tokens: 10
     })
 
-    const region = completion.choices[0].message.content?.trim() || 'EU'
-    console.log('📍 Analyzed region from country:', { country, region })
+    const region = completion.choices[0].message.content?.trim().toUpperCase() || 'EU'
+    console.log('Country analysis:', { country, region })
     return region
   } catch (error) {
-    console.error('❌ Error analyzing region:', error)
-    return 'EU' // Default to EU if there's an error
+    console.error('Error analyzing region:', error)
+    return 'EU'
   }
 }
 
@@ -777,9 +777,22 @@ export async function POST(request: Request) {
       const amountExVat = parseFloat(result.data.AmountExVAT?.toString() || '0');
       const vatPercentage = amountExVat > 0 ? Math.round((vatAmount / amountExVat) * 100) : 0;
 
+      // Calculate quarter based on month number
+      const month = parseInt(result.data.InvoiceMonth?.toString() || new Date().getMonth().toString()) + 1;
+      let quarter;
+      if (month >= 1 && month <= 3) {
+        quarter = 'Q1';
+      } else if (month >= 4 && month <= 6) {
+        quarter = 'Q2';
+      } else if (month >= 7 && month <= 9) {
+        quarter = 'Q3';
+      } else {
+        quarter = 'Q4';
+      }
+
       // Format the data to match the ExcelRow interface
       const data = {
-        quarter: `Q${Math.floor((new Date(result.data.InvoiceDate).getMonth() / 3)) + 1}`,
+        quarter,
         year: result.data.InvoiceYear?.toString() || new Date().getFullYear().toString(),
         month: result.data.InvoiceMonth || new Date(result.data.InvoiceDate).getMonth() + 1,
         date: result.data.InvoiceDate || new Date().getDate(),
