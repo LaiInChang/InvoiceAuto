@@ -45,43 +45,44 @@ export default function DashboardPage() {
       setIsDragging(false)
       setIsUploading(true)
       try {
-        console.log('Starting file upload...')
-        for (const file of acceptedFiles) {
-          console.log('Processing file:', file.name)
-          const formData = new FormData()
-          formData.append('file', file)
-          formData.append('upload_preset', process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'invoice_auto')
-          formData.append('folder', 'invoices')
+        console.log('Starting batch upload...')
+        const formData = new FormData()
+        
+        // Add all files to formData
+        acceptedFiles.forEach(file => {
+          formData.append('files', file)
+        })
 
-          console.log('Uploading to Cloudinary...')
-          const response = await fetch(
-            `https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/upload`,
-            {
-              method: 'POST',
-              body: formData,
-            }
-          )
+        const response = await fetch('/api/batch-upload', {
+          method: 'POST',
+          body: formData,
+        })
 
-          if (!response.ok) {
-            const errorText = await response.text()
-            console.error('Upload failed with response:', errorText)
-            throw new Error(`Upload failed: ${errorText}`)
+        const result = await response.json()
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to upload files')
+        }
+
+        if (result.successful) {
+          for (const file of result.successful) {
+            await handleUploadSuccess({
+              event: 'success',
+              info: {
+                original_filename: file.fileName,
+                secure_url: file.fileUrl,
+                public_id: file.publicId,
+              },
+            })
           }
+        }
 
-          const result = await response.json()
-          console.log('Upload successful:', result)
-          await handleUploadSuccess({
-            event: 'success',
-            info: {
-              public_id: result.public_id,
-              secure_url: result.secure_url,
-              original_filename: file.name
-            }
-          })
+        if (result.failed.length > 0) {
+          setError(`Failed to upload ${result.failed.length} file(s)`)
         }
       } catch (error) {
         console.error('Upload error:', error)
-        setError(error instanceof Error ? error.message : 'Failed to upload file')
+        setError(error instanceof Error ? error.message : 'Failed to upload files')
       } finally {
         setIsUploading(false)
       }
@@ -366,7 +367,7 @@ export default function DashboardPage() {
                   <>
                     <button
                       onClick={handleCancelAll}
-                      disabled={isRemovingAll}
+                      disabled={isRemovingAll || isUploading}
                       className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {isRemovingAll ? (
@@ -380,7 +381,7 @@ export default function DashboardPage() {
                     </button>
                     <button
                       onClick={handleProcessInvoices}
-                      disabled={isRemovingAll}
+                      disabled={isRemovingAll || isUploading}
                       className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Process Invoices
