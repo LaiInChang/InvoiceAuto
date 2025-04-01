@@ -351,25 +351,56 @@ export default function ProcessingPage() {
     }))
   }
 
-  const handleConfirm = () => {
-    // Calculate processing time
-    const endTime = new Date()
-    const processingTime = stats.startTime ? (endTime.getTime() - stats.startTime.getTime()) / 1000 : 0
+  const handleConfirm = async () => {
+    try {
+      // Calculate processing time
+      const endTime = new Date()
+      const processingTime = stats.startTime ? (endTime.getTime() - stats.startTime.getTime()) / 1000 : 0
 
-    // Prepare processing result
-    const processingResult = {
-      successCount: tableData.length,
-      failedCount: invoices.filter(inv => inv.status === 'cancelled').length,
-      processingTime: processingTime,
-      processedInvoices: tableData
+      // Prepare processing result
+      const processingResult = {
+        successCount: tableData.length,
+        failedCount: invoices.filter(inv => inv.status === 'cancelled').length,
+        processingTime: processingTime,
+        processedInvoices: tableData
+      }
+
+      // Get Firebase token
+      const idToken = await getIdToken()
+      
+      // Generate and upload Excel file through API
+      const response = await fetch('/api/generate-excel', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${idToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+          data: tableData.map((invoice: any, index: number) => ({
+            ...invoice,
+            no: index + 1
+          }))
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to generate Excel file')
+      }
+
+      const { fileUrl, fileName } = await response.json()
+      console.log('Excel file generated and uploaded successfully:', { fileUrl, fileName })
+
+      // Store in localStorage
+      console.log('Processing Page - Storing processing result:', processingResult)
+      localStorage.setItem('processingResult', JSON.stringify(processingResult))
+
+      // Navigate to download page
+      router.push('/download')
+    } catch (error) {
+      console.error('Error in handleConfirm:', error)
+      setError(error instanceof Error ? error.message : 'Failed to generate Excel file')
     }
-
-    // Store in localStorage
-    console.log('Processing Page - Storing processing result:', processingResult)
-    localStorage.setItem('processingResult', JSON.stringify(processingResult))
-
-    // Navigate to download page
-    router.push('/download')
   }
 
   const startProcessing = async () => {

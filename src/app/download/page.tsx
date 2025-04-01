@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { collection, query, where, getDocs } from 'firebase/firestore'
@@ -113,9 +113,10 @@ export default function DownloadPage() {
     link.href = URL.createObjectURL(blob)
     link.download = `invoice_report_${new Date().toISOString().split('T')[0]}.csv`
     link.click()
+    URL.revokeObjectURL(link.href)
   }
 
-  const handleDownloadExcel = async () => {
+  const handleDownloadExcel = () => {
     if (!result || result.processedInvoices.length === 0) {
       console.log('No processed invoices available for Excel download')
       return
@@ -125,45 +126,32 @@ export default function DownloadPage() {
       console.log('Starting Excel generation process...')
       console.log('Data to be processed:', result.processedInvoices)
       
-      // Get Firebase token
-      console.log('Getting Firebase token...')
-      const idToken = await user?.getIdToken()
-      console.log('Firebase token obtained:', idToken ? 'Yes' : 'No')
+      // Create workbook and worksheet
+      const workbook = XLSX.utils.book_new()
+      const worksheet = XLSX.utils.json_to_sheet(
+        result.processedInvoices.map((invoice: any, index: number) => ({
+          ...invoice,
+          no: index + 1
+        }))
+      )
 
-      // Generate Excel file through API
-      console.log('Sending request to /api/generate-excel...')
-      const response = await fetch('/api/generate-excel', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${idToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ 
-          data: result.processedInvoices.map((invoice, index) => ({
-            ...invoice,
-            no: index + 1
-          }))
-        })
+      // Add worksheet to workbook
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Invoice Analysis')
+
+      // Generate Excel file
+      const excelBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
+      const blob = new Blob([excelBuffer], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
       })
-
-      console.log('API Response status:', response.status)
       
-      if (!response.ok) {
-        const errorData = await response.json()
-        console.error('API Error:', errorData)
-        throw new Error(errorData.error || 'Failed to generate Excel file')
-      }
-
-      const { fileUrl, fileName } = await response.json()
-      console.log('API Response:', { fileUrl, fileName })
-
-      // Download the file
-      console.log('Creating download link...')
+      // Create download link
       const link = document.createElement('a')
-      link.href = fileUrl
-      link.download = fileName
-      console.log('Triggering download...')
+      link.href = URL.createObjectURL(blob)
+      link.download = `invoice_report_${new Date().toISOString().split('T')[0]}.xlsx`
       link.click()
+
+      // Cleanup
+      URL.revokeObjectURL(link.href)
       console.log('Download process completed')
 
     } catch (error) {
