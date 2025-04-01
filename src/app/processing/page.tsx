@@ -7,6 +7,8 @@ import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/fire
 import { db } from '@/lib/firebase'
 import { CheckCircleIcon, XCircleIcon, DocumentIcon, ArrowUturnLeftIcon, ArrowUturnRightIcon, ArrowPathIcon, ArrowLeftIcon, CheckIcon } from '@heroicons/react/24/outline'
 import { analyzeInvoice } from '@/lib/ai-processing'
+import { generateStyledExcel } from '@/lib/excel-utils'
+import { ExcelColumn, ExcelRow } from '@/types/excel'
 
 interface ProcessResult {
   success: boolean
@@ -33,32 +35,6 @@ interface ProcessingStats {
   totalCount: number
   startTime: Date | null
   totalProcessingTime: number
-}
-
-interface ExcelColumn {
-  id: keyof ExcelRow;
-  label: string;
-  width?: number;
-  minWidth?: number;
-  maxWidth?: number;
-}
-
-interface ExcelRow {
-  no: number;
-  quarter: string;
-  year: string;
-  month: number;
-  date: number;
-  invoiceNumber: string;
-  category: string;
-  supplier: string;
-  description: string;
-  vatRegion: string;
-  currency: string;
-  amountInclVat: string;
-  vatPercentage: string;
-  amountExVat: string;
-  vat: string;
 }
 
 interface TableHistory {
@@ -112,6 +88,8 @@ export default function ProcessingPage() {
   })
   const [isEditing, setIsEditing] = useState(false)
   const [isExcelGenerated, setIsExcelGenerated] = useState(false)
+  const [isTestingExcel, setIsTestingExcel] = useState(false)
+  const [excelTestError, setExcelTestError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!user) {
@@ -196,23 +174,27 @@ export default function ProcessingPage() {
           console.log('Processing result:', result)
           return result.success && result.data
         })
-        .map((result: ProcessResult, index: number) => ({
-          no: tableData.length + index + 1,
-          quarter: result.data.quarter,
-          year: result.data.year,
-          month: result.data.month,
-          date: result.data.date,
-          invoiceNumber: result.data.invoiceNumber,
-          category: result.data.category,
-          supplier: result.data.supplier,
-          description: result.data.description,
-          vatRegion: result.data.vatRegion,
-          currency: result.data.currency,
-          amountInclVat: result.data.amountInclVat,
-          vatPercentage: result.data.vatPercentage,
-          amountExVat: result.data.amountExVat,
-          vat: result.data.vat
-        }))
+        .map((result: ProcessResult, index: number) => {
+          if (!result.data) return null
+          return {
+            no: tableData.length + index + 1,
+            quarter: result.data.quarter,
+            year: result.data.year,
+            month: result.data.month,
+            date: result.data.date,
+            invoiceNumber: result.data.invoiceNumber,
+            category: result.data.category,
+            supplier: result.data.supplier,
+            description: result.data.description,
+            vatRegion: result.data.vatRegion,
+            currency: result.data.currency,
+            amountInclVat: result.data.amountInclVat,
+            vatPercentage: result.data.vatPercentage,
+            amountExVat: result.data.amountExVat,
+            vat: result.data.vat
+          }
+        })
+        .filter((row: ExcelRow | null): row is ExcelRow => row !== null)
 
       console.log('New rows to add:', newRows)
 
@@ -409,6 +391,36 @@ export default function ProcessingPage() {
     }
   }
 
+  const handleTestExcel = async () => {
+    if (!tableData.length) {
+      setExcelTestError('No data available for Excel generation')
+      return
+    }
+
+    try {
+      setIsTestingExcel(true)
+      setExcelTestError(null)
+      
+      console.log('Testing Excel generation with data:', tableData)
+      const blob = await generateStyledExcel(tableData, excelColumns)
+      
+      // Create download link
+      const link = document.createElement('a')
+      link.href = URL.createObjectURL(blob)
+      link.download = `invoice_report_test_${new Date().toISOString().split('T')[0]}.xlsx`
+      link.click()
+      
+      // Cleanup
+      URL.revokeObjectURL(link.href)
+      console.log('Test Excel generation completed successfully')
+    } catch (error) {
+      console.error('Error in test Excel generation:', error)
+      setExcelTestError(error instanceof Error ? error.message : 'Failed to generate test Excel file')
+    } finally {
+      setIsTestingExcel(false)
+    }
+  }
+
   const startProgressSimulation = (totalBatches: number) => {
     // Clear any existing interval
     if (progressIntervalRef.current) {
@@ -571,30 +583,53 @@ export default function ProcessingPage() {
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-medium text-gray-900">Processed Invoices</h3>
                   {tableData.length > 0 && (
-                    <button
-                      onClick={handleConfirm}
-                      disabled={isProcessing || isConfirming}
-                      className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-                        isProcessing || isConfirming
-                          ? 'bg-gray-400 cursor-not-allowed'
-                          : 'bg-primary-600 hover:bg-primary-700'
-                      } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500`}
-                    >
-                      {isConfirming ? (
-                        <>
-                          <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          Generating Excel...
-                        </>
-                      ) : (
-                        <>
-                          <CheckIcon className="h-5 w-5 mr-2" />
-                          Confirm & Continue
-                        </>
-                      )}
-                    </button>
+                    <div className="flex justify-end space-x-4">
+                      <button
+                        onClick={handleTestExcel}
+                        disabled={isTestingExcel}
+                        className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+                          isTestingExcel 
+                            ? 'bg-gray-400 cursor-not-allowed' 
+                            : 'bg-blue-600 hover:bg-blue-700'
+                        } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500`}
+                      >
+                        {isTestingExcel ? (
+                          <>
+                            <ArrowPathIcon className="animate-spin -ml-1 mr-2 h-5 w-5" />
+                            Testing Excel...
+                          </>
+                        ) : (
+                          <>
+                            <DocumentIcon className="h-5 w-5 mr-2" />
+                            Test Excel Styling
+                          </>
+                        )}
+                      </button>
+                      <button
+                        onClick={handleConfirm}
+                        disabled={isProcessing || isConfirming}
+                        className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+                          isProcessing || isConfirming
+                            ? 'bg-gray-400 cursor-not-allowed'
+                            : 'bg-primary-600 hover:bg-primary-700'
+                        } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500`}
+                      >
+                        {isConfirming ? (
+                          <>
+                            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Generating Excel...
+                          </>
+                        ) : (
+                          <>
+                            <CheckIcon className="h-5 w-5 mr-2" />
+                            Confirm & Continue
+                          </>
+                        )}
+                      </button>
+                    </div>
                   )}
                 </div>
                 <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
@@ -719,6 +754,25 @@ export default function ProcessingPage() {
             </div>
           )}
         </div>
+
+        {/* Add error message for Excel testing */}
+        {excelTestError && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <XCircleIcon className="h-5 w-5 text-red-400" />
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-red-800">
+                  Excel Test Error
+                </h3>
+                <div className="mt-2 text-sm text-red-700">
+                  {excelTestError}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Action Buttons */}
         <div className="flex items-center justify-between mt-8">
