@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
-import { CheckCircleIcon, XCircleIcon, DocumentIcon, ArrowUturnLeftIcon, ArrowUturnRightIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
+import { CheckCircleIcon, XCircleIcon, DocumentIcon, ArrowUturnLeftIcon, ArrowUturnRightIcon, ArrowPathIcon, ArrowLeftIcon, CheckIcon } from '@heroicons/react/24/outline'
 import { analyzeInvoice } from '@/lib/ai-processing'
 
 interface ProcessResult {
@@ -107,6 +107,7 @@ export default function ProcessingPage() {
   })
   const [isEditing, setIsEditing] = useState(false)
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
+  const [isExcelGenerated, setIsExcelGenerated] = useState(false)
 
   useEffect(() => {
     if (!user) {
@@ -218,15 +219,21 @@ export default function ProcessingPage() {
           return updated
         })
         
-        setTableHistory(prev => {
-          const updated = {
+        // Only update history if Excel is already generated
+        if (isExcelGenerated) {
+          setTableHistory(prev => ({
             past: [...prev.past, prev.present],
             present: [...prev.present, ...newRows],
             future: []
-          }
-          console.log('Updated table history:', updated)
-          return updated
-        })
+          }))
+        } else {
+          // For initial data loading, just set the present state
+          setTableHistory(prev => ({
+            past: [],
+            present: [...prev.present, ...newRows],
+            future: []
+          }))
+        }
       }
 
       // Update invoice statuses
@@ -264,6 +271,11 @@ export default function ProcessingPage() {
         }
       }
 
+      // If this is the last batch, mark Excel as generated
+      if (stats.currentBatch === stats.totalBatches) {
+        setIsExcelGenerated(true)
+      }
+
       return batchResults.results
     } catch (error) {
       console.error('Error processing batch:', error)
@@ -272,8 +284,9 @@ export default function ProcessingPage() {
   }
 
   const handleUndo = useCallback(() => {
+    if (tableHistory.past.length === 0) return;
+    
     setTableHistory(prev => {
-      if (prev.past.length === 0) return prev
       const newPast = prev.past.slice(0, -1)
       const newPresent = prev.past[prev.past.length - 1]
       return {
@@ -282,11 +295,21 @@ export default function ProcessingPage() {
         future: [prev.present, ...prev.future]
       }
     })
-  }, [])
+    // Update tableData with the new present state
+    setTableData(prev => {
+      const newHistory = {
+        past: tableHistory.past.slice(0, -1),
+        present: tableHistory.past[tableHistory.past.length - 1],
+        future: [tableHistory.present, ...tableHistory.future]
+      }
+      return newHistory.present
+    })
+  }, [tableHistory])
 
   const handleRedo = useCallback(() => {
+    if (tableHistory.future.length === 0) return;
+    
     setTableHistory(prev => {
-      if (prev.future.length === 0) return prev
       const newFuture = prev.future.slice(1)
       const newPresent = prev.future[0]
       return {
@@ -295,13 +318,25 @@ export default function ProcessingPage() {
         future: newFuture
       }
     })
-  }, [])
+    // Update tableData with the new present state
+    setTableData(prev => {
+      const newHistory = {
+        past: [...tableHistory.past, tableHistory.present],
+        present: tableHistory.future[0],
+        future: tableHistory.future.slice(1)
+      }
+      return newHistory.present
+    })
+  }, [tableHistory])
 
   const handleReset = useCallback(() => {
+    if (tableHistory.past.length === 0) return;
+    
+    // Reset to the initial state while keeping the data
     setTableHistory(prev => ({
       past: [],
-      present: [],
-      future: []
+      present: prev.present, // Keep the current data
+      future: [...prev.past, prev.present] // Add current state to future for redo
     }))
   }, [])
 
@@ -309,14 +344,15 @@ export default function ProcessingPage() {
     const newData = [...tableData];
     newData[index] = { ...newData[index], [field]: value };
     setTableData(newData);
+    // Update history with the new data
+    setTableHistory(prev => ({
+      past: [...prev.past, prev.present],
+      present: newData,
+      future: []
+    }))
   }
 
   const handleConfirm = () => {
-    setShowConfirmDialog(true)
-  }
-
-  const handleConfirmProceed = () => {
-    setShowConfirmDialog(false)
     router.push('/download')
   }
 
@@ -431,28 +467,18 @@ export default function ProcessingPage() {
               <div className="mt-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-medium text-gray-900">Processed Invoices</h3>
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={handleUndo}
-                      disabled={tableHistory.past.length === 0}
-                      className="p-2 text-gray-500 hover:text-gray-700 disabled:opacity-50"
-                    >
-                      <ArrowUturnLeftIcon className="h-5 w-5" />
-                    </button>
-                    <button
-                      onClick={handleRedo}
-                      disabled={tableHistory.future.length === 0}
-                      className="p-2 text-gray-500 hover:text-gray-700 disabled:opacity-50"
-                    >
-                      <ArrowUturnRightIcon className="h-5 w-5" />
-                    </button>
-                    <button
-                      onClick={handleReset}
-                      className="p-2 text-gray-500 hover:text-gray-700"
-                    >
-                      <ArrowPathIcon className="h-5 w-5" />
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => setShowConfirmDialog(true)}
+                    disabled={isProcessing || tableData.length === 0}
+                    className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+                      isProcessing || tableData.length === 0
+                        ? 'bg-gray-400 cursor-not-allowed'
+                        : 'bg-primary-600 hover:bg-primary-700'
+                    } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500`}
+                  >
+                    <CheckIcon className="h-5 w-5 mr-2" />
+                    Confirm & Continue
+                  </button>
                 </div>
                 <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
                   <div className="flex">
@@ -576,28 +602,41 @@ export default function ProcessingPage() {
             </div>
           )}
         </div>
+
+        {/* Action Buttons */}
+        <div className="flex items-center justify-between mt-8">
+          <button
+            onClick={() => router.back()}
+            className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+          >
+            <ArrowLeftIcon className="h-5 w-5 mr-2" />
+            Back
+          </button>
+        </div>
       </div>
 
       {/* Confirmation Dialog */}
       {showConfirmDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full">
-            <h3 className="text-lg font-semibold mb-4">Confirm Data</h3>
-            <p className="text-gray-600 mb-4">
-              Please review the data before proceeding to the download page. Are you sure you want to continue?
+        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">
+              Confirm and Continue
+            </h3>
+            <p className="text-sm text-gray-500 mb-6">
+              Are you sure you want to proceed to download the processed data?
             </p>
-            <div className="flex justify-end space-x-4">
+            <div className="flex justify-end space-x-3">
               <button
                 onClick={() => setShowConfirmDialog(false)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirm}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                className="px-4 py-2 text-sm font-medium text-white bg-primary-600 border border-transparent rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
               >
-                Confirm
+                Continue to Download
               </button>
             </div>
           </div>
