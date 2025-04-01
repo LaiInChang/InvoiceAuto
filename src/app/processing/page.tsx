@@ -92,6 +92,7 @@ export default function ProcessingPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [isConfirming, setIsConfirming] = useState(false)
   const BATCH_SIZE = 10
   const [progress, setProgress] = useState(0)
   const progressIntervalRef = useRef<NodeJS.Timeout>()
@@ -357,6 +358,7 @@ export default function ProcessingPage() {
 
   const handleConfirm = async () => {
     try {
+      setIsConfirming(true)
       console.log('Confirm clicked at:', new Date().toISOString())
 
       // Prepare processing result with start and end times
@@ -403,6 +405,7 @@ export default function ProcessingPage() {
     } catch (error) {
       console.error('Error in handleConfirm:', error)
       setError(error instanceof Error ? error.message : 'Failed to generate Excel file')
+      setIsConfirming(false)
     }
   }
 
@@ -567,18 +570,32 @@ export default function ProcessingPage() {
               <div className="mt-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-medium text-gray-900">Processed Invoices</h3>
-                  <button
-                    onClick={handleConfirm}
-                    disabled={isProcessing || tableData.length === 0}
-                    className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-                      isProcessing || tableData.length === 0
-                        ? 'bg-gray-400 cursor-not-allowed'
-                        : 'bg-primary-600 hover:bg-primary-700'
-                    } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500`}
-                  >
-                    <CheckIcon className="h-5 w-5 mr-2" />
-                    Confirm & Continue
-                  </button>
+                  {tableData.length > 0 && (
+                    <button
+                      onClick={handleConfirm}
+                      disabled={isProcessing || isConfirming}
+                      className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+                        isProcessing || isConfirming
+                          ? 'bg-gray-400 cursor-not-allowed'
+                          : 'bg-primary-600 hover:bg-primary-700'
+                      } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500`}
+                    >
+                      {isConfirming ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Generating Excel...
+                        </>
+                      ) : (
+                        <>
+                          <CheckIcon className="h-5 w-5 mr-2" />
+                          Confirm & Continue
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
                 <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
                   <div className="flex">
