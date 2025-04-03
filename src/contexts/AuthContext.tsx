@@ -27,6 +27,50 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [lastActivity, setLastActivity] = useState<number>(Date.now())
+
+  // Auto logout after 30 minutes of inactivity
+  useEffect(() => {
+    const inactivityTimeout = 30 * 60 * 1000 // 30 minutes in milliseconds
+    let inactivityTimer: NodeJS.Timeout
+
+    const resetInactivityTimer = () => {
+      setLastActivity(Date.now())
+      if (inactivityTimer) {
+        clearTimeout(inactivityTimer)
+      }
+      if (user) {
+        inactivityTimer = setTimeout(() => {
+          signOut()
+        }, inactivityTimeout)
+      }
+    }
+
+    // Reset timer on user activity
+    const handleUserActivity = () => {
+      resetInactivityTimer()
+    }
+
+    // Add event listeners for user activity
+    window.addEventListener('mousemove', handleUserActivity)
+    window.addEventListener('keydown', handleUserActivity)
+    window.addEventListener('click', handleUserActivity)
+    window.addEventListener('scroll', handleUserActivity)
+
+    // Initial setup
+    resetInactivityTimer()
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('mousemove', handleUserActivity)
+      window.removeEventListener('keydown', handleUserActivity)
+      window.removeEventListener('click', handleUserActivity)
+      window.removeEventListener('scroll', handleUserActivity)
+      if (inactivityTimer) {
+        clearTimeout(inactivityTimer)
+      }
+    }
+  }, [user])
 
   useEffect(() => {
     if (!auth) {
@@ -53,7 +97,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithEmail = async (email: string, password: string) => {
     try {
       await signInWithEmailAndPassword(auth, email, password)
+      setLastActivity(Date.now())
     } catch (error) {
+      console.error('Error signing in:', error)
       throw error
     }
   }
@@ -78,7 +124,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     try {
       await firebaseSignOut(auth)
+      // Clear any stored data
+      localStorage.removeItem('processingResult')
+      localStorage.removeItem('cookieConsent')
+      // Clear any other stored data as needed
     } catch (error) {
+      console.error('Error signing out:', error)
       throw error
     }
   }
