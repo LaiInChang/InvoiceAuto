@@ -104,13 +104,14 @@ export default function Account() {
   const [allReports, setAllReports] = useState<Report[]>([])
   const [displayedInvoices, setDisplayedInvoices] = useState<Invoice[]>([])
   const [displayedReports, setDisplayedReports] = useState<Report[]>([])
-  const [startDate, setStartDate] = useState<Date | null>(null)
-  const [endDate, setEndDate] = useState<Date | null>(null)
+  const [invoiceStartDate, setInvoiceStartDate] = useState<Date | null>(null)
+  const [invoiceEndDate, setInvoiceEndDate] = useState<Date | null>(null)
+  const [reportStartDate, setReportStartDate] = useState<Date | null>(null)
+  const [reportEndDate, setReportEndDate] = useState<Date | null>(null)
   const [invoiceSort, setInvoiceSort] = useState<'asc' | 'desc'>('desc')
   const [reportSort, setReportSort] = useState<'asc' | 'desc'>('desc')
-  const [invoiceNameSort, setInvoiceNameSort] = useState<'asc' | 'desc'>('asc')
-  const [reportNameSort, setReportNameSort] = useState<'asc' | 'desc'>('asc')
-  const [showFilter, setShowFilter] = useState(false)
+  const [showInvoiceFilter, setShowInvoiceFilter] = useState(false)
+  const [showReportFilter, setShowReportFilter] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -172,45 +173,45 @@ export default function Account() {
         })
         
         try {
-          const invoicesSnapshot = await getDocs(invoicesQuery)
+        const invoicesSnapshot = await getDocs(invoicesQuery)
           console.log('Filtered invoices snapshot:', {
-            empty: invoicesSnapshot.empty,
-            size: invoicesSnapshot.size,
-            docs: invoicesSnapshot.docs.map(doc => ({
-              id: doc.id,
-              data: doc.data()
-            }))
-          })
-
-          const invoicesData = invoicesSnapshot.docs.map(doc => ({
+          empty: invoicesSnapshot.empty,
+          size: invoicesSnapshot.size,
+          docs: invoicesSnapshot.docs.map(doc => ({
             id: doc.id,
-            ...doc.data(),
+            data: doc.data()
+          }))
+        })
+
+        const invoicesData = invoicesSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
             processedAt: doc.data().processedAt.toDate()
-          })) as Invoice[]
+        })) as Invoice[]
           console.log('Processed invoices data:', invoicesData)
 
-          // Fetch reports
-          console.log('Fetching reports...')
-          const reportsQuery = query(
-            collection(db, 'reports'),
-            where('userId', '==', user.uid),
-            orderBy('processedAt', 'desc')
-          )
-          console.log('Reports query parameters:', {
-            collection: 'reports',
-            userId: user.uid,
-            orderBy: 'processedAt'
-          })
+        // Fetch reports
+        console.log('Fetching reports...')
+        const reportsQuery = query(
+          collection(db, 'reports'),
+          where('userId', '==', user.uid),
+          orderBy('processedAt', 'desc')
+        )
+        console.log('Reports query parameters:', {
+          collection: 'reports',
+          userId: user.uid,
+          orderBy: 'processedAt'
+        })
 
-          const reportsSnapshot = await getDocs(reportsQuery)
+        const reportsSnapshot = await getDocs(reportsQuery)
           console.log('Filtered reports snapshot:', {
-            empty: reportsSnapshot.empty,
-            size: reportsSnapshot.size,
-            docs: reportsSnapshot.docs.map(doc => ({
-              id: doc.id,
-              data: doc.data()
-            }))
-          })
+          empty: reportsSnapshot.empty,
+          size: reportsSnapshot.size,
+          docs: reportsSnapshot.docs.map(doc => ({
+            id: doc.id,
+            data: doc.data()
+          }))
+        })
 
           const reportsData = reportsSnapshot.docs.map(doc => ({
             id: doc.id,
@@ -250,19 +251,28 @@ export default function Account() {
   }, [user, router])
 
   useEffect(() => {
-    const filterAndSortData = () => {
+    const filterAndSortInvoices = () => {
       // Filter by date range
       const filterByDateRange = (date: Date) => {
-        if (!startDate && !endDate) return true
-        if (startDate && !endDate) return date >= startDate
-        if (!startDate && endDate) return date <= endDate
-        if (startDate && endDate) return date >= startDate && date <= endDate
+        if (!invoiceStartDate && !invoiceEndDate) return true
+        if (invoiceStartDate && !invoiceEndDate) return date >= invoiceStartDate
+        if (!invoiceStartDate && invoiceEndDate) {
+          const endOfDay = new Date(invoiceEndDate)
+          endOfDay.setHours(23, 59, 59, 999)
+          return date <= endOfDay
+        }
+        if (invoiceStartDate && invoiceEndDate) {
+          const endOfDay = new Date(invoiceEndDate)
+          endOfDay.setHours(23, 59, 59, 999)
+          return date >= invoiceStartDate && date <= endOfDay
+        }
         return true
       }
 
       // Filter invoices
       const filteredInvoices = allInvoices.filter(invoice => filterByDateRange(invoice.processedAt))
-      // Sort invoices
+      
+      // Sort by date
       const sortedInvoices = [...filteredInvoices].sort((a, b) => {
         if (invoiceSort === 'asc') {
           return a.processedAt.getTime() - b.processedAt.getTime()
@@ -270,11 +280,36 @@ export default function Account() {
           return b.processedAt.getTime() - a.processedAt.getTime()
         }
       })
+
       setDisplayedInvoices(sortedInvoices)
+    }
+
+    filterAndSortInvoices()
+  }, [allInvoices, invoiceStartDate, invoiceEndDate, invoiceSort])
+
+  useEffect(() => {
+    const filterAndSortReports = () => {
+      // Filter by date range
+      const filterByDateRange = (date: Date) => {
+        if (!reportStartDate && !reportEndDate) return true
+        if (reportStartDate && !reportEndDate) return date >= reportStartDate
+        if (!reportStartDate && reportEndDate) {
+          const endOfDay = new Date(reportEndDate)
+          endOfDay.setHours(23, 59, 59, 999)
+          return date <= endOfDay
+        }
+        if (reportStartDate && reportEndDate) {
+          const endOfDay = new Date(reportEndDate)
+          endOfDay.setHours(23, 59, 59, 999)
+          return date >= reportStartDate && date <= endOfDay
+        }
+        return true
+      }
 
       // Filter reports
       const filteredReports = allReports.filter(report => filterByDateRange(report.processedAt))
-      // Sort reports
+      
+      // Sort by date
       const sortedReports = [...filteredReports].sort((a, b) => {
         if (reportSort === 'asc') {
           return a.processedAt.getTime() - b.processedAt.getTime()
@@ -282,11 +317,12 @@ export default function Account() {
           return b.processedAt.getTime() - a.processedAt.getTime()
         }
       })
+
       setDisplayedReports(sortedReports)
     }
 
-    filterAndSortData()
-  }, [allInvoices, allReports, startDate, endDate, invoiceSort, reportSort])
+    filterAndSortReports()
+  }, [allReports, reportStartDate, reportEndDate, reportSort])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -321,12 +357,14 @@ export default function Account() {
     setReportSort(prev => prev === 'asc' ? 'desc' : 'asc')
   }
 
-  const handleSortInvoiceNames = () => {
-    setInvoiceNameSort(prev => prev === 'asc' ? 'desc' : 'asc')
+  const handleClearInvoiceDates = () => {
+    setInvoiceStartDate(null)
+    setInvoiceEndDate(null)
   }
 
-  const handleSortReportNames = () => {
-    setReportNameSort(prev => prev === 'asc' ? 'desc' : 'asc')
+  const handleClearReportDates = () => {
+    setReportStartDate(null)
+    setReportEndDate(null)
   }
 
   if (loading) {
@@ -658,7 +696,7 @@ export default function Account() {
                     <h3 className="text-lg font-medium text-gray-900">Your Invoices</h3>
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => setShowFilter(!showFilter)}
+                        onClick={() => setShowInvoiceFilter(!showInvoiceFilter)}
                         className="inline-flex items-center p-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
                         title="Filter by date"
                       >
@@ -678,15 +716,12 @@ export default function Account() {
                     </div>
                   </div>
 
-                  {showFilter && (
+                  {showInvoiceFilter && (
                     <div className="bg-white p-4 rounded-lg border border-gray-200">
                       <div className="flex items-center justify-between mb-4">
                         <h4 className="text-sm font-medium text-gray-700">Filter by Date Range</h4>
                         <button
-                          onClick={() => {
-                            setStartDate(null)
-                            setEndDate(null)
-                          }}
+                          onClick={handleClearInvoiceDates}
                           className="text-sm text-gray-500 hover:text-gray-700"
                         >
                           Clear Dates
@@ -697,8 +732,8 @@ export default function Account() {
                           <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
                           <LocalizationProvider dateAdapter={AdapterDateFns}>
                             <DatePicker
-                              value={startDate}
-                              onChange={(newValue) => setStartDate(newValue)}
+                              value={invoiceStartDate}
+                              onChange={(newValue) => setInvoiceStartDate(newValue)}
                               slotProps={{
                                 textField: {
                                   size: "small",
@@ -713,8 +748,8 @@ export default function Account() {
                           <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
                           <LocalizationProvider dateAdapter={AdapterDateFns}>
                             <DatePicker
-                              value={endDate}
-                              onChange={(newValue) => setEndDate(newValue)}
+                              value={invoiceEndDate}
+                              onChange={(newValue) => setInvoiceEndDate(newValue)}
                               slotProps={{
                                 textField: {
                                   size: "small",
@@ -734,19 +769,7 @@ export default function Account() {
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            <button
-                              onClick={handleSortInvoiceNames}
-                              className="inline-flex items-center group"
-                            >
-                              File Name
-                              <span className="ml-1">
-                                {invoiceNameSort === 'asc' ? (
-                                  <ChevronUpIcon className="h-4 w-4 text-gray-400 group-hover:text-gray-600" />
-                                ) : (
-                                  <ChevronDownIcon className="h-4 w-4 text-gray-400 group-hover:text-gray-600" />
-                                )}
-                              </span>
-                            </button>
+                            File Name
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             <button
@@ -804,7 +827,7 @@ export default function Account() {
                     <h3 className="text-lg font-medium text-gray-900">Your Reports</h3>
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => setShowFilter(!showFilter)}
+                        onClick={() => setShowReportFilter(!showReportFilter)}
                         className="inline-flex items-center p-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
                         title="Filter by date"
                       >
@@ -824,15 +847,12 @@ export default function Account() {
                     </div>
                   </div>
 
-                  {showFilter && (
+                  {showReportFilter && (
                     <div className="bg-white p-4 rounded-lg border border-gray-200">
                       <div className="flex items-center justify-between mb-4">
                         <h4 className="text-sm font-medium text-gray-700">Filter by Date Range</h4>
                         <button
-                          onClick={() => {
-                            setStartDate(null)
-                            setEndDate(null)
-                          }}
+                          onClick={handleClearReportDates}
                           className="text-sm text-gray-500 hover:text-gray-700"
                         >
                           Clear Dates
@@ -843,8 +863,8 @@ export default function Account() {
                           <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
                           <LocalizationProvider dateAdapter={AdapterDateFns}>
                             <DatePicker
-                              value={startDate}
-                              onChange={(newValue) => setStartDate(newValue)}
+                              value={reportStartDate}
+                              onChange={(newValue) => setReportStartDate(newValue)}
                               slotProps={{
                                 textField: {
                                   size: "small",
@@ -859,8 +879,8 @@ export default function Account() {
                           <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
                           <LocalizationProvider dateAdapter={AdapterDateFns}>
                             <DatePicker
-                              value={endDate}
-                              onChange={(newValue) => setEndDate(newValue)}
+                              value={reportEndDate}
+                              onChange={(newValue) => setReportEndDate(newValue)}
                               slotProps={{
                                 textField: {
                                   size: "small",
@@ -880,19 +900,7 @@ export default function Account() {
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            <button
-                              onClick={handleSortReportNames}
-                              className="inline-flex items-center group"
-                            >
-                              File Name
-                              <span className="ml-1">
-                                {reportNameSort === 'asc' ? (
-                                  <ChevronUpIcon className="h-4 w-4 text-gray-400 group-hover:text-gray-600" />
-                                ) : (
-                                  <ChevronDownIcon className="h-4 w-4 text-gray-400 group-hover:text-gray-600" />
-                                )}
-                              </span>
-                            </button>
+                            File Name
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             <button

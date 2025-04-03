@@ -609,7 +609,7 @@ export default function ProcessingPage() {
                   <h3 className="text-lg font-medium text-gray-900">Processed Invoices</h3>
                   {tableData.length > 0 && (
                     <div className="flex justify-end space-x-4">
-                      <button
+                      {/* <button
                         onClick={handleTestExcel}
                         disabled={isTestingExcel}
                         className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
@@ -629,7 +629,7 @@ export default function ProcessingPage() {
                             Test Excel Styling
                           </>
                         )}
-                      </button>
+                      </button> */}
                       <button
                         onClick={handleConfirmAndContinue}
                         disabled={isProcessing || isConfirming}
