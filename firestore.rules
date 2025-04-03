@@ -12,7 +12,7 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // User profiles
+    // Users collection
     match /users/{userId} {
       allow read, write: if isOwner(userId);
     }
@@ -24,13 +24,13 @@ service cloud.firestore {
       allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
     }
     
-    // Invoices
+    // Invoices collection
     match /invoices/{invoiceId} {
       allow read, write: if isOwner(resource.data.userId);
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
     }
 
-    // Reports
+    // Reports collection
     match /reports/{reportId} {
       allow read, write: if isOwner(resource.data.userId);
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;

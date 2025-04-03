@@ -8,8 +8,14 @@ import { PhoneInput } from '@/components/PhoneInput'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { updateProfile } from 'firebase/auth'
 import { db } from '@/lib/firebase'
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore'
+import { collection, query, where, getDocs, orderBy, Timestamp } from 'firebase/firestore'
 import { format } from 'date-fns'
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
+import { DatePicker } from '@mui/x-date-pickers/DatePicker'
+import { TextField, Button, Box, Select, MenuItem, FormControl, InputLabel } from '@mui/material'
+import { ArrowUpIcon, ArrowDownIcon, CalendarIcon, ChevronUpIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
+import { DateRangeFilter } from '@/components/DateRangeFilter'
 
 interface UserProfile {
   uid: string
@@ -37,8 +43,9 @@ interface Invoice {
   fileName: string
   fileUrl: string
   processedAt: Date
+  publicId: string
   status: string
-  results?: any
+  userId: string
 }
 
 interface Report {
@@ -47,7 +54,7 @@ interface Report {
   fileUrl: string
   processedAt: Date
   userId: string
-  data?: any
+  status: string
 }
 
 const EU_COUNTRIES = [
@@ -93,10 +100,17 @@ export default function Account() {
   })
   const [isEditing, setIsEditing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [invoices, setInvoices] = useState<Invoice[]>([])
-  const [reports, setReports] = useState<Report[]>([])
-  const [loadingInvoices, setLoadingInvoices] = useState(false)
-  const [loadingReports, setLoadingReports] = useState(false)
+  const [allInvoices, setAllInvoices] = useState<Invoice[]>([])
+  const [allReports, setAllReports] = useState<Report[]>([])
+  const [displayedInvoices, setDisplayedInvoices] = useState<Invoice[]>([])
+  const [displayedReports, setDisplayedReports] = useState<Report[]>([])
+  const [startDate, setStartDate] = useState<Date | null>(null)
+  const [endDate, setEndDate] = useState<Date | null>(null)
+  const [invoiceSort, setInvoiceSort] = useState<'asc' | 'desc'>('desc')
+  const [reportSort, setReportSort] = useState<'asc' | 'desc'>('desc')
+  const [invoiceNameSort, setInvoiceNameSort] = useState<'asc' | 'desc'>('asc')
+  const [reportNameSort, setReportNameSort] = useState<'asc' | 'desc'>('asc')
+  const [showFilter, setShowFilter] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -146,7 +160,6 @@ export default function Account() {
 
         // Fetch invoices
         console.log('Fetching invoices...')
-        setLoadingInvoices(true)
         const invoicesQuery = query(
           collection(db, 'invoices'),
           where('userId', '==', user.uid),
@@ -157,71 +170,68 @@ export default function Account() {
           userId: user.uid,
           orderBy: 'processedAt'
         })
-        const invoicesSnapshot = await getDocs(invoicesQuery)
-        console.log('Invoices snapshot metadata:', {
-          empty: invoicesSnapshot.empty,
-          size: invoicesSnapshot.size,
-          docs: invoicesSnapshot.docs.map(doc => ({
-            id: doc.id,
-            data: doc.data()
-          }))
-        })
-        const invoicesData = invoicesSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          processedAt: doc.data().processedAt?.toDate() || new Date()
-        })) as Invoice[]
-        console.log('Invoices fetched:', invoicesData.length)
-        setInvoices(invoicesData)
-        setLoadingInvoices(false)
-
-        // Fetch reports
-        console.log('Fetching reports...')
-        setLoadingReports(true)
-        const reportsQuery = query(
-          collection(db, 'reports'),
-          where('userId', '==', user.uid),
-          orderBy('processedAt', 'desc')
-        )
-        console.log('Reports query parameters:', {
-          collection: 'reports',
-          userId: user.uid,
-          orderBy: 'processedAt'
-        })
-        const reportsSnapshot = await getDocs(reportsQuery)
-        console.log('Reports snapshot metadata:', {
-          empty: reportsSnapshot.empty,
-          size: reportsSnapshot.size,
-          docs: reportsSnapshot.docs.map(doc => ({
-            id: doc.id,
-            data: doc.data()
-          }))
-        })
-        const reportsData = reportsSnapshot.docs.map(doc => {
-          const data = doc.data()
-          console.log('Processing report document:', {
-            id: doc.id,
-            fileName: data.fileName,
-            fileUrl: data.fileUrl,
-            processedAt: data.processedAt,
-            userId: data.userId,
-            data: data.data
+        
+        try {
+          const invoicesSnapshot = await getDocs(invoicesQuery)
+          console.log('Filtered invoices snapshot:', {
+            empty: invoicesSnapshot.empty,
+            size: invoicesSnapshot.size,
+            docs: invoicesSnapshot.docs.map(doc => ({
+              id: doc.id,
+              data: doc.data()
+            }))
           })
-          return {
+
+          const invoicesData = invoicesSnapshot.docs.map(doc => ({
             id: doc.id,
-            ...data,
-            processedAt: data.processedAt?.toDate() || new Date()
+            ...doc.data(),
+            processedAt: doc.data().processedAt.toDate()
+          })) as Invoice[]
+          console.log('Processed invoices data:', invoicesData)
+
+          // Fetch reports
+          console.log('Fetching reports...')
+          const reportsQuery = query(
+            collection(db, 'reports'),
+            where('userId', '==', user.uid),
+            orderBy('processedAt', 'desc')
+          )
+          console.log('Reports query parameters:', {
+            collection: 'reports',
+            userId: user.uid,
+            orderBy: 'processedAt'
+          })
+
+          const reportsSnapshot = await getDocs(reportsQuery)
+          console.log('Filtered reports snapshot:', {
+            empty: reportsSnapshot.empty,
+            size: reportsSnapshot.size,
+            docs: reportsSnapshot.docs.map(doc => ({
+              id: doc.id,
+              data: doc.data()
+            }))
+          })
+
+          const reportsData = reportsSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            processedAt: doc.data().processedAt.toDate()
+          })) as Report[]
+          console.log('Processed reports data:', reportsData)
+
+          setAllInvoices(invoicesData)
+          setAllReports(reportsData)
+          setDisplayedInvoices(invoicesData)
+          setDisplayedReports(reportsData)
+        } catch (error) {
+          console.error('Error fetching data:', error)
+          if (error instanceof Error) {
+            setMessage({
+              type: 'error',
+              text: `Error: ${error.message}`
+            })
           }
-        }) as Report[]
-        console.log('Final reports data:', reportsData.map(report => ({
-          id: report.id,
-          fileName: report.fileName,
-          fileUrl: report.fileUrl,
-          processedAt: report.processedAt,
-          userId: report.userId
-        })))
-        setReports(reportsData)
-        setLoadingReports(false)
+        }
 
       } catch (error) {
         console.error('Error in fetchData:', error)
@@ -238,6 +248,45 @@ export default function Account() {
 
     fetchData()
   }, [user, router])
+
+  useEffect(() => {
+    const filterAndSortData = () => {
+      // Filter by date range
+      const filterByDateRange = (date: Date) => {
+        if (!startDate && !endDate) return true
+        if (startDate && !endDate) return date >= startDate
+        if (!startDate && endDate) return date <= endDate
+        if (startDate && endDate) return date >= startDate && date <= endDate
+        return true
+      }
+
+      // Filter invoices
+      const filteredInvoices = allInvoices.filter(invoice => filterByDateRange(invoice.processedAt))
+      // Sort invoices
+      const sortedInvoices = [...filteredInvoices].sort((a, b) => {
+        if (invoiceSort === 'asc') {
+          return a.processedAt.getTime() - b.processedAt.getTime()
+        } else {
+          return b.processedAt.getTime() - a.processedAt.getTime()
+        }
+      })
+      setDisplayedInvoices(sortedInvoices)
+
+      // Filter reports
+      const filteredReports = allReports.filter(report => filterByDateRange(report.processedAt))
+      // Sort reports
+      const sortedReports = [...filteredReports].sort((a, b) => {
+        if (reportSort === 'asc') {
+          return a.processedAt.getTime() - b.processedAt.getTime()
+        } else {
+          return b.processedAt.getTime() - a.processedAt.getTime()
+        }
+      })
+      setDisplayedReports(sortedReports)
+    }
+
+    filterAndSortData()
+  }, [allInvoices, allReports, startDate, endDate, invoiceSort, reportSort])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -262,6 +311,22 @@ export default function Account() {
       console.error('Error updating profile:', error)
       setMessage({ type: 'error', text: 'Failed to update profile. Please try again.' })
     }
+  }
+
+  const handleSortInvoices = () => {
+    setInvoiceSort(prev => prev === 'asc' ? 'desc' : 'asc')
+  }
+
+  const handleSortReports = () => {
+    setReportSort(prev => prev === 'asc' ? 'desc' : 'asc')
+  }
+
+  const handleSortInvoiceNames = () => {
+    setInvoiceNameSort(prev => prev === 'asc' ? 'desc' : 'asc')
+  }
+
+  const handleSortReportNames = () => {
+    setReportNameSort(prev => prev === 'asc' ? 'desc' : 'asc')
   }
 
   if (loading) {
@@ -589,81 +654,293 @@ export default function Account() {
 
               {activeTab === 'invoices' && (
                 <div className="space-y-6">
-                  <h3 className="text-lg font-medium leading-6 text-gray-900">Your Invoices</h3>
-                  {loadingInvoices ? (
-                    <div className="text-center py-4">Loading invoices...</div>
-                  ) : (
-                    <div className="bg-white shadow overflow-hidden sm:rounded-md">
-                      <ul className="divide-y divide-gray-200">
-                        {invoices.length > 0 ? (
-                          invoices.map((invoice) => (
-                            <li key={invoice.id} className="px-4 py-4 flex items-center justify-between">
-                              <div className="text-sm text-gray-900">
-                                {invoice.fileName}
-                              </div>
-                              <div className="flex items-center space-x-4">
-                                <div className="text-sm text-gray-500">
-                                  {format(invoice.processedAt, 'MMM d, yyyy HH:mm')}
-                                </div>
-                                <a
-                                  href={invoice.fileUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-primary-600 hover:text-primary-900"
-                                >
-                                  Download
-                                </a>
-                              </div>
-                            </li>
-                          ))
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-medium text-gray-900">Your Invoices</h3>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setShowFilter(!showFilter)}
+                        className="inline-flex items-center p-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                        title="Filter by date"
+                      >
+                        <CalendarIcon className="h-5 w-5" />
+                      </button>
+                      <button
+                        onClick={handleSortInvoices}
+                        className="inline-flex items-center p-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                        title={`Sort by date ${invoiceSort === 'asc' ? 'ascending' : 'descending'}`}
+                      >
+                        {invoiceSort === 'asc' ? (
+                          <ArrowUpIcon className="h-5 w-5" />
                         ) : (
-                          <li className="px-4 py-4">
-                            <div className="text-sm text-gray-500">No invoices found</div>
-                          </li>
+                          <ArrowDownIcon className="h-5 w-5" />
                         )}
-                      </ul>
+                      </button>
+                    </div>
+                  </div>
+
+                  {showFilter && (
+                    <div className="bg-white p-4 rounded-lg border border-gray-200">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-sm font-medium text-gray-700">Filter by Date Range</h4>
+                        <button
+                          onClick={() => {
+                            setStartDate(null)
+                            setEndDate(null)
+                          }}
+                          className="text-sm text-gray-500 hover:text-gray-700"
+                        >
+                          Clear Dates
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                          <LocalizationProvider dateAdapter={AdapterDateFns}>
+                            <DatePicker
+                              value={startDate}
+                              onChange={(newValue) => setStartDate(newValue)}
+                              slotProps={{
+                                textField: {
+                                  size: "small",
+                                  fullWidth: true,
+                                  placeholder: "Select start date"
+                                }
+                              }}
+                            />
+                          </LocalizationProvider>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                          <LocalizationProvider dateAdapter={AdapterDateFns}>
+                            <DatePicker
+                              value={endDate}
+                              onChange={(newValue) => setEndDate(newValue)}
+                              slotProps={{
+                                textField: {
+                                  size: "small",
+                                  fullWidth: true,
+                                  placeholder: "Select end date"
+                                }
+                              }}
+                            />
+                          </LocalizationProvider>
+                        </div>
+                      </div>
                     </div>
                   )}
+
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <button
+                              onClick={handleSortInvoiceNames}
+                              className="inline-flex items-center group"
+                            >
+                              File Name
+                              <span className="ml-1">
+                                {invoiceNameSort === 'asc' ? (
+                                  <ChevronUpIcon className="h-4 w-4 text-gray-400 group-hover:text-gray-600" />
+                                ) : (
+                                  <ChevronDownIcon className="h-4 w-4 text-gray-400 group-hover:text-gray-600" />
+                                )}
+                              </span>
+                            </button>
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <button
+                              onClick={handleSortInvoices}
+                              className="inline-flex items-center group"
+                            >
+                              Upload Time
+                              <span className="ml-1">
+                                {invoiceSort === 'asc' ? (
+                                  <ChevronUpIcon className="h-4 w-4 text-gray-400 group-hover:text-gray-600" />
+                                ) : (
+                                  <ChevronDownIcon className="h-4 w-4 text-gray-400 group-hover:text-gray-600" />
+                                )}
+                              </span>
+                            </button>
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {displayedInvoices.length > 0 ? (
+                          displayedInvoices.map((invoice) => (
+                            <tr key={invoice.id}>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{invoice.fileName}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                {format(invoice.processedAt, 'PPpp')}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                  invoice.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                  invoice.status === 'processing' ? 'bg-yellow-100 text-yellow-800' :
+                                  'bg-red-100 text-red-800'
+                                }`}>
+                                  {invoice.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={3} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
+                              No invoices found
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 
               {activeTab === 'reports' && (
                 <div className="space-y-6">
-                  <h3 className="text-lg font-medium leading-6 text-gray-900">Excel Reports</h3>
-                  {loadingReports ? (
-                    <div className="text-center py-4">Loading reports...</div>
-                  ) : (
-                    <div className="bg-white shadow overflow-hidden sm:rounded-md">
-                      <ul className="divide-y divide-gray-200">
-                        {reports.length > 0 ? (
-                          reports.map((report) => (
-                            <li key={report.id} className="px-4 py-4 flex items-center justify-between">
-                              <div className="text-sm text-gray-900">
-                                {report.fileName}
-                              </div>
-                              <div className="flex items-center space-x-4">
-                                <div className="text-sm text-gray-500">
-                                  {format(report.processedAt, 'MMM d, yyyy HH:mm')}
-                                </div>
-                                <a
-                                  href={report.fileUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-primary-600 hover:text-primary-900"
-                                >
-                                  Download
-                                </a>
-                              </div>
-                            </li>
-                          ))
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-medium text-gray-900">Your Reports</h3>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setShowFilter(!showFilter)}
+                        className="inline-flex items-center p-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                        title="Filter by date"
+                      >
+                        <CalendarIcon className="h-5 w-5" />
+                      </button>
+                      <button
+                        onClick={handleSortReports}
+                        className="inline-flex items-center p-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                        title={`Sort by date ${reportSort === 'asc' ? 'ascending' : 'descending'}`}
+                      >
+                        {reportSort === 'asc' ? (
+                          <ArrowUpIcon className="h-5 w-5" />
                         ) : (
-                          <li className="px-4 py-4">
-                            <div className="text-sm text-gray-500">No reports found</div>
-                          </li>
+                          <ArrowDownIcon className="h-5 w-5" />
                         )}
-                      </ul>
+                      </button>
+                    </div>
+                  </div>
+
+                  {showFilter && (
+                    <div className="bg-white p-4 rounded-lg border border-gray-200">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-sm font-medium text-gray-700">Filter by Date Range</h4>
+                        <button
+                          onClick={() => {
+                            setStartDate(null)
+                            setEndDate(null)
+                          }}
+                          className="text-sm text-gray-500 hover:text-gray-700"
+                        >
+                          Clear Dates
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                          <LocalizationProvider dateAdapter={AdapterDateFns}>
+                            <DatePicker
+                              value={startDate}
+                              onChange={(newValue) => setStartDate(newValue)}
+                              slotProps={{
+                                textField: {
+                                  size: "small",
+                                  fullWidth: true,
+                                  placeholder: "Select start date"
+                                }
+                              }}
+                            />
+                          </LocalizationProvider>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                          <LocalizationProvider dateAdapter={AdapterDateFns}>
+                            <DatePicker
+                              value={endDate}
+                              onChange={(newValue) => setEndDate(newValue)}
+                              slotProps={{
+                                textField: {
+                                  size: "small",
+                                  fullWidth: true,
+                                  placeholder: "Select end date"
+                                }
+                              }}
+                            />
+                          </LocalizationProvider>
+                        </div>
+                      </div>
                     </div>
                   )}
+
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <button
+                              onClick={handleSortReportNames}
+                              className="inline-flex items-center group"
+                            >
+                              File Name
+                              <span className="ml-1">
+                                {reportNameSort === 'asc' ? (
+                                  <ChevronUpIcon className="h-4 w-4 text-gray-400 group-hover:text-gray-600" />
+                                ) : (
+                                  <ChevronDownIcon className="h-4 w-4 text-gray-400 group-hover:text-gray-600" />
+                                )}
+                              </span>
+                            </button>
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <button
+                              onClick={handleSortReports}
+                              className="inline-flex items-center group"
+                            >
+                              Upload Time
+                              <span className="ml-1">
+                                {reportSort === 'asc' ? (
+                                  <ChevronUpIcon className="h-4 w-4 text-gray-400 group-hover:text-gray-600" />
+                                ) : (
+                                  <ChevronDownIcon className="h-4 w-4 text-gray-400 group-hover:text-gray-600" />
+                                )}
+                              </span>
+                            </button>
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {displayedReports.length > 0 ? (
+                          displayedReports.map((report) => (
+                            <tr key={report.id}>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{report.fileName}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                {format(report.processedAt, 'PPpp')}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                  report.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                  report.status === 'processing' ? 'bg-yellow-100 text-yellow-800' :
+                                  'bg-red-100 text-red-800'
+                                }`}>
+                                  {report.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={3} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
+                              No reports found
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>
