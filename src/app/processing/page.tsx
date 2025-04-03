@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
-import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore'
+import { collection, query, where, getDocs, updateDoc, doc, addDoc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { CheckCircleIcon, XCircleIcon, DocumentIcon, ArrowUturnLeftIcon, ArrowUturnRightIcon, ArrowPathIcon, ArrowLeftIcon, CheckIcon } from '@heroicons/react/24/outline'
 import { analyzeInvoice } from '@/lib/ai-processing'
@@ -338,55 +338,80 @@ export default function ProcessingPage() {
     }))
   }
 
-  const handleConfirm = async () => {
+  const handleConfirmAndContinue = async () => {
+    if (!tableData || tableData.length === 0) {
+      setError('No data available to process')
+      return
+    }
+
     try {
       setIsConfirming(true)
       console.log('Confirm clicked at:', new Date().toISOString())
 
-      // Prepare processing result with start and end times
-      const processingResult = {
-        successCount: tableData.length,
-        failedCount: invoices.filter(inv => inv.status === 'cancelled').length,
-        startTime: stats.startTime?.toISOString(),
-        endTime: new Date().toISOString(),
-        processedInvoices: tableData
-      }
+      // Generate styled Excel file
+      const excelBlob = await generateStyledExcel(tableData, excelColumns)
+      const excelFile = new File([excelBlob], 'invoice_analysis.xlsx', { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      })
+
+      // Create FormData and append files
+      const formData = new FormData()
+      formData.append('excelFile', excelFile)
+      formData.append('invoiceData', JSON.stringify(tableData))
+      formData.append('columns', JSON.stringify(excelColumns))
 
       // Get Firebase token
       const idToken = await getIdToken()
       
-      // Generate and upload Excel file through API
-      const response = await fetch('/api/generate-excel', {
+      // Send to API
+      const response = await fetch('/api/process-invoices', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${idToken}`,
-          'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ 
-          data: tableData.map((invoice: any, index: number) => ({
-            ...invoice,
-            no: index + 1
-          }))
-        })
+        body: formData
       })
 
       if (!response.ok) {
         const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to generate Excel file')
+        throw new Error(errorData.error || 'Failed to process invoices')
       }
 
-      const { fileUrl, fileName } = await response.json()
-      console.log('Excel file generated and uploaded successfully:', { fileUrl, fileName })
+      const result = await response.json()
+      console.log('Processing result:', result)
 
-      // Store in localStorage
+      // Store processing result in localStorage with the correct structure
+      const processingResult = {
+        successCount: tableData.length,
+        failedCount: 0,
+        startTime: new Date().toISOString(),
+        endTime: new Date().toISOString(),
+        processedInvoices: tableData,
+        fileUrl: result.fileUrl,
+        fileName: result.fileName
+      }
+      
       console.log('Processing Page - Storing processing result:', processingResult)
       localStorage.setItem('processingResult', JSON.stringify(processingResult))
+
+      // Upload to Firestore in the reports collection
+      const reportsRef = collection(db, 'reports')
+      await addDoc(reportsRef, {
+        userId: user?.uid,
+        processedAt: new Date(),
+        successCount: tableData.length,
+        failedCount: 0,
+        totalInvoices: tableData.length,
+        fileUrl: result.fileUrl,
+        fileName: result.fileName,
+        status: 'completed'
+      })
 
       // Navigate to download page
       router.push('/download')
     } catch (error) {
-      console.error('Error in handleConfirm:', error)
-      setError(error instanceof Error ? error.message : 'Failed to generate Excel file')
+      console.error('Error processing invoices:', error)
+      setError(error instanceof Error ? error.message : 'Failed to process invoices')
       setIsConfirming(false)
     }
   }
@@ -606,7 +631,7 @@ export default function ProcessingPage() {
                         )}
                       </button>
                       <button
-                        onClick={handleConfirm}
+                        onClick={handleConfirmAndContinue}
                         disabled={isProcessing || isConfirming}
                         className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
                           isProcessing || isConfirming

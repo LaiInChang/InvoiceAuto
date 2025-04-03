@@ -1,42 +1,6 @@
 import ExcelJS from 'exceljs'
 import { ExcelColumn, ExcelRow } from '@/types/excel'
 
-export const calculateColumnWidths = (data: ExcelRow[], columns: ExcelColumn[]) => {
-  console.log('Calculating column widths for data:', data)
-  const widths = columns.map(col => {
-    // Get all values for this column
-    const values = data.map(row => String(row[col.id] || ''))
-    
-    // Calculate the maximum width based on actual content
-    const contentWidth = Math.max(
-      ...values.map(value => {
-        // Count characters, considering line breaks
-        const lines = value.split('\n')
-        return Math.max(...lines.map(line => line.length))
-      })
-    )
-
-    // Add minimal padding for better readability
-    const padding = 1
-
-    // Calculate final width with stricter constraints
-    const finalWidth = Math.min(
-      Math.max(
-        contentWidth + padding,
-        col.minWidth || 5  // Minimum width of 5 characters
-      ),
-      col.maxWidth || 50  // Maximum width of 50 characters
-    )
-
-    // Round to 1 decimal place for cleaner numbers
-    const roundedWidth = Math.round(finalWidth * 10) / 10
-
-    console.log(`Column ${col.id}: content width = ${contentWidth}, final width = ${roundedWidth}`)
-    return roundedWidth
-  })
-  return widths
-}
-
 export const generateStyledExcel = async (data: ExcelRow[], columns: ExcelColumn[]) => {
   try {
     console.log('Starting Excel generation with data:', data)

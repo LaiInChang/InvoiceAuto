@@ -58,6 +58,10 @@ interface ProcessingResult {
   successCount: number
   failedCount: number
   processedInvoices: any[]
+  fileUrl?: string
+  fileName?: string
+  startTime: number
+  endTime: number
 }
 
 export default function DownloadPage() {
@@ -115,47 +119,24 @@ export default function DownloadPage() {
     URL.revokeObjectURL(link.href)
   }
 
-  const handleDownloadExcel = () => {
-    if (!result || result.processedInvoices.length === 0) {
-      console.log('No processed invoices available for Excel download')
-      return
-    }
-
+  const handleDownloadExcel = async () => {
     try {
-      console.log('Starting Excel generation process...')
-      console.log('Data to be processed:', result.processedInvoices)
-      
-      // Create workbook and worksheet
-      const workbook = XLSX.utils.book_new()
-      const worksheet = XLSX.utils.json_to_sheet(
-        result.processedInvoices.map((invoice: any, index: number) => ({
-          ...invoice,
-          no: index + 1
-        }))
-      )
+      if (!result || !result.fileUrl) {
+        throw new Error('No file URL available')
+      }
 
-      // Add worksheet to workbook
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Invoice Analysis')
-
-      // Generate Excel file
-      const excelBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
-      const blob = new Blob([excelBuffer], { 
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
-      })
-      
-      // Create download link
+      // Create a temporary link element
       const link = document.createElement('a')
-      link.href = URL.createObjectURL(blob)
-      link.download = `invoice_report_${new Date().toISOString().split('T')[0]}.xlsx`
+      link.href = result.fileUrl
+      link.download = result.fileName || 'invoice_analysis.xlsx'
+      
+      // Append to body, click, and remove
+      document.body.appendChild(link)
       link.click()
-
-      // Cleanup
-      URL.revokeObjectURL(link.href)
-      console.log('Download process completed')
-
+      document.body.removeChild(link)
     } catch (error) {
-      console.error('Error in handleDownloadExcel:', error)
-      setError(error instanceof Error ? error.message : 'Failed to generate Excel file')
+      console.error('Error downloading Excel:', error)
+      setError(error instanceof Error ? error.message : 'Failed to download Excel file')
     }
   }
 
