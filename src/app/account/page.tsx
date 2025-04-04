@@ -16,6 +16,8 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 import { TextField, Button, Box, Select, MenuItem, FormControl, InputLabel } from '@mui/material'
 import { ArrowUpIcon, ArrowDownIcon, CalendarIcon, ChevronUpIcon, ChevronDownIcon, MagnifyingGlassIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline'
 import { DateRangeFilter } from '@/components/DateRangeFilter'
+import JSZip from 'jszip'
+import { saveAs } from 'file-saver'
 
 interface UserProfile {
   uid: string
@@ -114,6 +116,15 @@ export default function Account() {
   const [showReportFilter, setShowReportFilter] = useState(false)
   const [invoiceSearch, setInvoiceSearch] = useState('')
   const [reportSearch, setReportSearch] = useState('')
+  const [batchDownloadLoading, setBatchDownloadLoading] = useState({
+    invoice: false,
+    report: false
+  })
+  const [downloadProgress, setDownloadProgress] = useState({
+    current: 0,
+    total: 0,
+    percentage: 0
+  })
 
   useEffect(() => {
     const fetchData = async () => {
@@ -439,50 +450,105 @@ export default function Account() {
     }
   }
 
-  // Add batch download function
+  // Update handleBatchDownload function for client-side zipping
   const handleBatchDownload = async (type: 'invoice' | 'report') => {
     try {
+      setBatchDownloadLoading(prev => ({ ...prev, [type]: true }))
       const items = type === 'invoice' ? displayedInvoices : displayedReports
       
-      // Create a temporary container for all download links
-      const container = document.createElement('div')
-      container.style.display = 'none'
-      document.body.appendChild(container)
+      if (type === 'invoice') {
+        // For invoices, do client-side zipping
+        const zip = new JSZip()
+        const total = items.length
+        
+        setDownloadProgress({
+          current: 0,
+          total,
+          percentage: 0
+        })
+        
+        // Download each invoice and add to zip
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i]
+          try {
+            // Update progress
+            setDownloadProgress({
+              current: i + 1,
+              total,
+              percentage: Math.round(((i + 1) / total) * 100)
+            })
+            
+            // Fetch the file
+            const response = await fetch(item.fileUrl)
+            if (!response.ok) throw new Error(`Failed to fetch ${item.fileName}`)
+            
+            // Get file as blob
+            const blob = await response.blob()
+            
+            // Add to zip
+            zip.file(item.fileName, blob)
+          } catch (error) {
+            console.error(`Error downloading ${item.fileName}:`, error)
+            // Continue with other files
+          }
+        }
+        
+        // Generate and download zip
+        const content = await zip.generateAsync({ 
+          type: 'blob',
+          compression: 'DEFLATE',
+          compressionOptions: { level: 6 }
+        })
+        
+        // Use file-saver to download the zip
+        saveAs(content, 'invoices.zip')
+        
+        // Reset progress
+        setDownloadProgress({
+          current: 0,
+          total: 0,
+          percentage: 0
+        })
+      } else {
+        // For reports use the server-side approach
+        const files = items.map(item => ({
+          fileName: item.fileName,
+          fileUrl: item.fileUrl,
+          type: type
+        }))
 
-      // Create and trigger downloads for each item
-      for (const item of items) {
-        let fileUrl = item.fileUrl
-        const fileName = item.fileName
+        const response = await fetch('/api/download', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ files })
+        })
 
-        // If it's a Cloudinary URL (for invoices), modify it to include filename
-        if (type === 'invoice' && fileUrl.includes('cloudinary.com')) {
-          // Extract the base URL and version number more carefully
-          const uploadIndex = fileUrl.indexOf('/upload/')
-          const versionIndex = fileUrl.indexOf('/v', uploadIndex)
-          const baseUrl = fileUrl.substring(0, uploadIndex + 7) // Include '/upload/'
-          const versionAndRest = fileUrl.substring(versionIndex + 1) // Keep everything after '/v'
-          
-          // Remove file extension from fileName
-          const fileNameWithoutExt = fileName.replace(/\.[^/.]+$/, '')
-          
-          // Reconstruct URL with fl_attachment and filename
-          fileUrl = `${baseUrl}fl_attachment:${fileNameWithoutExt}/${versionAndRest}`
+        if (!response.ok) {
+          const errorText = await response.text()
+          console.error('Download API error:', errorText)
+          throw new Error(`Failed to download files: ${errorText}`)
         }
 
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
         const link = document.createElement('a')
-        link.href = fileUrl
-        link.download = fileName // This will be used for non-Cloudinary downloads
-        link.target = '_blank'
-        link.rel = 'noopener noreferrer'
-        container.appendChild(link)
+        link.href = url
+        link.download = `${type}s.zip`
+        document.body.appendChild(link)
         link.click()
+        document.body.removeChild(link)
+        window.URL.revokeObjectURL(url)
       }
-
-      // Clean up
-      document.body.removeChild(container)
     } catch (error) {
       console.error(`Error in batch download:`, error)
-      // You might want to show an error message to the user here
+      setMessage({
+        type: 'error',
+        text: `Failed to download ${type}s. Please try again.`
+      })
+    } finally {
+      setBatchDownloadLoading(prev => ({ ...prev, [type]: false }))
     }
   }
 
@@ -844,11 +910,25 @@ export default function Account() {
                       </button> */}
                       <button
                         onClick={() => handleBatchDownload('invoice')}
-                        className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-                        disabled={displayedInvoices.length === 0}
+                        className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                        disabled={displayedInvoices.length === 0 || batchDownloadLoading.invoice}
                       >
-                        <ArrowDownTrayIcon className="h-5 w-5 mr-2" />
-                        Download All
+                        {batchDownloadLoading.invoice ? (
+                          <>
+                            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            {downloadProgress.current > 0 ? 
+                              `Downloading ${downloadProgress.current}/${downloadProgress.total} (${downloadProgress.percentage}%)` : 
+                              'Preparing download...'}
+                          </>
+                        ) : (
+                          <>
+                            <ArrowDownTrayIcon className="h-5 w-5 mr-2" />
+                            Download All
+                          </>
+                        )}
                       </button>
                               </div>
                                 </div>
@@ -994,11 +1074,23 @@ export default function Account() {
                       </button> */}
                       <button
                         onClick={() => handleBatchDownload('report')}
-                        className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-                        disabled={displayedReports.length === 0}
+                        className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                        disabled={displayedReports.length === 0 || batchDownloadLoading.report}
                       >
-                        <ArrowDownTrayIcon className="h-5 w-5 mr-2" />
-                        Download All
+                        {batchDownloadLoading.report ? (
+                          <>
+                            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Downloading...
+                          </>
+                        ) : (
+                          <>
+                            <ArrowDownTrayIcon className="h-5 w-5 mr-2" />
+                            Download All
+                          </>
+                        )}
                       </button>
                               </div>
                                 </div>
