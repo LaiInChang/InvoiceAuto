@@ -23,11 +23,30 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No Excel file provided' }, { status: 400 })
     }
 
+    // Create a more logical filename with relevant information
+    const now = new Date()
+    const dateStr = now.toISOString().split('T')[0] // YYYY-MM-DD
+    const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '') // HHMMSS
+    
+    // Get invoice numbers from the data if available
+    let invoiceNumberPart = ''
+    if (invoiceData && invoiceData.length > 0) {
+      if (invoiceData.length === 1) {
+        // Single invoice - include the invoice number
+        invoiceNumberPart = `-INV${invoiceData[0].invoiceNumber.replace(/[^a-zA-Z0-9]/g, '')}`
+      } else {
+        // Multiple invoices - include count
+        invoiceNumberPart = `-${invoiceData.length}INVs`
+      }
+    }
+    
+    // Create a filename with format: InvoiceReport-YYYY-MM-DD-HHMMSS-INVxxxx.xlsx
+    const fileName = `InvoiceReport-${dateStr}-${timeStr}${invoiceNumberPart}.xlsx`
+    
     // Convert the Excel file to buffer
     const buffer = await excelFile.arrayBuffer()
 
     // Upload to Firebase Storage in the reports directory
-    const fileName = `invoice_analysis_${Date.now()}.xlsx`
     const fileRef = storage.bucket().file(`reports/${fileName}`)
     
     await fileRef.save(Buffer.from(buffer), {

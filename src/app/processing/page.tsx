@@ -537,6 +537,9 @@ export default function ProcessingPage() {
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current)
       }
+      
+      // Clear the processing flag when navigating away from this page
+      localStorage.removeItem('isProcessingInvoices')
     }
   }, [])
 

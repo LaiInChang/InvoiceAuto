@@ -39,6 +39,7 @@ export default function DashboardPage() {
   const [isUploading, setIsUploading] = useState(false)
   const [isRemoving, setIsRemoving] = useState<string | null>(null)
   const [isRemovingAll, setIsRemovingAll] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: async (acceptedFiles) => {
@@ -139,7 +140,7 @@ export default function DashboardPage() {
   }
 
   const handleUploadSuccess = async (result: CloudinaryResponse) => {
-    if (result.event === 'success') {
+    if (result.event === 'success' && user?.uid) {
       console.log('Upload success:', result)
       try {
         const invoiceData = {
@@ -147,7 +148,7 @@ export default function DashboardPage() {
           fileUrl: result.info.secure_url,
           publicId: result.info.public_id,
           processedAt: new Date(),
-          userId: user?.uid,
+          userId: user.uid,
           status: 'pending' as const
         }
 
@@ -293,8 +294,26 @@ export default function DashboardPage() {
   }
 
   const handleProcessInvoices = () => {
+    setIsProcessing(true)
+    
+    // Store the processing state in localStorage so it persists during navigation
+    localStorage.setItem('isProcessingInvoices', 'true')
+    
+    // Navigate to the processing page
     router.push('/processing')
   }
+
+  // Add useEffect to check localStorage when component mounts
+  useEffect(() => {
+    // Check if we're coming back from processing page
+    const isProcessingInvoices = localStorage.getItem('isProcessingInvoices')
+    if (isProcessingInvoices === 'true') {
+      // Clear the flag
+      localStorage.removeItem('isProcessingInvoices')
+      // Refresh invoices to show latest state
+      loadInvoices()
+    }
+  }, [])
 
   return (
     <div className="min-h-screen bg-gray-50 pt-24 pb-8">
@@ -362,14 +381,14 @@ export default function DashboardPage() {
           <div className="flex justify-center mb-8">
             <button
               onClick={handleProcessInvoices}
-              disabled={isRemovingAll || isUploading}
+              disabled={isRemovingAll || isUploading || isProcessing}
               className={`px-8 py-4 text-lg font-semibold rounded-lg shadow-lg transition-all duration-200 ${
-                isRemovingAll || isUploading
+                isRemovingAll || isUploading || isProcessing
                   ? 'bg-gray-400 cursor-not-allowed'
                   : 'bg-blue-600 hover:bg-blue-700 hover:shadow-xl'
               } text-white flex items-center gap-2`}
             >
-              {isUploading ? (
+              {isProcessing ? (
                 <>
                   <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
                   Processing...

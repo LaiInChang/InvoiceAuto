@@ -1038,8 +1038,8 @@ export default function Account() {
                           </>
                         )}
                       </button>
-                    </div>
-                  </div>
+                              </div>
+                                </div>
 
                   {showInvoiceFilter && (
                     <div className="bg-white p-4 rounded-lg border border-gray-200">
@@ -1051,7 +1051,7 @@ export default function Account() {
                         >
                           Clear Dates
                         </button>
-                      </div>
+                              </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
@@ -1139,7 +1139,7 @@ export default function Account() {
                                       checked={selectedInvoices.includes(invoice.id)}
                                       onChange={() => toggleInvoiceSelection(invoice.id)}
                                     />
-                                  </div>
+                    </div>
                                 </td>
                               )}
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -1233,8 +1233,8 @@ export default function Account() {
                           </>
                         )}
                       </button>
-                    </div>
-                  </div>
+                              </div>
+                                </div>
 
                   {showReportFilter && (
                     <div className="bg-white p-4 rounded-lg border border-gray-200">
@@ -1246,7 +1246,7 @@ export default function Account() {
                         >
                           Clear Dates
                         </button>
-                      </div>
+                              </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
@@ -1334,7 +1334,7 @@ export default function Account() {
                                       checked={selectedReports.includes(report.id)}
                                       onChange={() => toggleReportSelection(report.id)}
                                     />
-                                  </div>
+                    </div>
                                 </td>
                               )}
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
