@@ -123,8 +123,13 @@ export default function Account() {
   const [downloadProgress, setDownloadProgress] = useState({
     current: 0,
     total: 0,
-    percentage: 0
+    percentage: 0,
+    type: null as 'invoice' | 'report' | null
   })
+  const [selectedInvoices, setSelectedInvoices] = useState<string[]>([])
+  const [selectedReports, setSelectedReports] = useState<string[]>([])
+  const [isSelectModeInvoice, setIsSelectModeInvoice] = useState(false)
+  const [isSelectModeReport, setIsSelectModeReport] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -433,122 +438,218 @@ export default function Account() {
         fileUrl = `${baseUrl}/fl_attachment:${fileNameWithoutExt}/${versionAndRest}`
       }
 
-      // Create a temporary link element
-      const link = document.createElement('a')
-      link.href = fileUrl
-      link.download = fileName // This will be used for non-Cloudinary downloads
-      link.target = '_blank'
-      link.rel = 'noopener noreferrer'
-
-      // Append to body, click, and remove
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-    } catch (error) {
-      console.error(`Error downloading ${type}:`, error)
-      // You might want to show an error message to the user here
-    }
-  }
-
-  // Update handleBatchDownload function for client-side zipping
-  const handleBatchDownload = async (type: 'invoice' | 'report') => {
-    try {
-      setBatchDownloadLoading(prev => ({ ...prev, [type]: true }))
-      const items = type === 'invoice' ? displayedInvoices : displayedReports
-      
-      if (type === 'invoice') {
-        // For invoices, do client-side zipping
-        const zip = new JSZip()
-        const total = items.length
+      if (type === 'report') {
+        // For reports, use our proxy API to avoid CORS issues
+        const proxyUrl = `/api/proxy?url=${encodeURIComponent(fileUrl)}`
         
-        setDownloadProgress({
-          current: 0,
-          total,
-          percentage: 0
-        })
-        
-        // Download each invoice and add to zip
-        for (let i = 0; i < items.length; i++) {
-          const item = items[i]
-          try {
-            // Update progress
-            setDownloadProgress({
-              current: i + 1,
-              total,
-              percentage: Math.round(((i + 1) / total) * 100)
-            })
-            
-            // Fetch the file
-            const response = await fetch(item.fileUrl)
-            if (!response.ok) throw new Error(`Failed to fetch ${item.fileName}`)
-            
-            // Get file as blob
-            const blob = await response.blob()
-            
-            // Add to zip
-            zip.file(item.fileName, blob)
-          } catch (error) {
-            console.error(`Error downloading ${item.fileName}:`, error)
-            // Continue with other files
+        try {
+          console.log(`Downloading ${type} via proxy: ${fileName}`)
+          const response = await fetch(proxyUrl)
+          
+          if (!response.ok) {
+            throw new Error(`Failed to download: ${response.status} ${response.statusText}`)
           }
+          
+          const blob = await response.blob()
+          const url = window.URL.createObjectURL(blob)
+          
+          // Create download link
+          const link = document.createElement('a')
+          link.href = url
+          link.download = fileName
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+          window.URL.revokeObjectURL(url)
+          
+          return
+        } catch (error) {
+          console.error(`Error downloading via proxy:`, error)
+          throw error
         }
-        
-        // Generate and download zip
-        const content = await zip.generateAsync({ 
-          type: 'blob',
-          compression: 'DEFLATE',
-          compressionOptions: { level: 6 }
-        })
-        
-        // Use file-saver to download the zip
-        saveAs(content, 'invoices.zip')
-        
-        // Reset progress
-        setDownloadProgress({
-          current: 0,
-          total: 0,
-          percentage: 0
-        })
       } else {
-        // For reports use the server-side approach
-        const files = items.map(item => ({
-          fileName: item.fileName,
-          fileUrl: item.fileUrl,
-          type: type
-        }))
-
-        const response = await fetch('/api/download', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ files })
-        })
-
-        if (!response.ok) {
-          const errorText = await response.text()
-          console.error('Download API error:', errorText)
-          throw new Error(`Failed to download files: ${errorText}`)
-        }
-
-        const blob = await response.blob()
-        const url = window.URL.createObjectURL(blob)
+        // For invoices and other files, use direct link method
+        // Create a temporary link element
         const link = document.createElement('a')
-        link.href = url
-        link.download = `${type}s.zip`
+        link.href = fileUrl
+        link.download = fileName // This will be used for non-Cloudinary downloads
+        link.target = '_blank'
+        link.rel = 'noopener noreferrer'
+
+        // Append to body, click, and remove
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
-        window.URL.revokeObjectURL(url)
       }
+    } catch (error) {
+      console.error(`Error downloading ${type}:`, error)
+      setMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : `Failed to download ${type}. Please try again.`
+      })
+    }
+  }
+
+  const toggleSelectModeInvoice = () => {
+    setIsSelectModeInvoice(!isSelectModeInvoice)
+    // Clear selections when toggling off
+    if (isSelectModeInvoice) {
+      setSelectedInvoices([])
+    }
+  }
+
+  const toggleSelectModeReport = () => {
+    setIsSelectModeReport(!isSelectModeReport)
+    // Clear selections when toggling off
+    if (isSelectModeReport) {
+      setSelectedReports([])
+    }
+  }
+
+  const toggleInvoiceSelection = (id: string) => {
+    setSelectedInvoices(prev => 
+      prev.includes(id) 
+        ? prev.filter(item => item !== id) 
+        : [...prev, id]
+    )
+  }
+
+  const toggleReportSelection = (id: string) => {
+    setSelectedReports(prev => 
+      prev.includes(id) 
+        ? prev.filter(item => item !== id) 
+        : [...prev, id]
+    )
+  }
+
+  const selectAllInvoices = () => {
+    if (selectedInvoices.length === displayedInvoices.length) {
+      setSelectedInvoices([])
+    } else {
+      setSelectedInvoices(displayedInvoices.map(invoice => invoice.id))
+    }
+  }
+
+  const selectAllReports = () => {
+    if (selectedReports.length === displayedReports.length) {
+      setSelectedReports([])
+    } else {
+      setSelectedReports(displayedReports.map(report => report.id))
+    }
+  }
+
+  const handleBatchDownload = async (type: 'invoice' | 'report') => {
+    try {
+      setBatchDownloadLoading(prev => ({ ...prev, [type]: true }))
+      
+      // Determine which items to download
+      const selectedIds = type === 'invoice' ? selectedInvoices : selectedReports
+      const isFiltered = type === 'invoice' 
+        ? (invoiceStartDate !== null || invoiceEndDate !== null || invoiceSearch !== '')
+        : (reportStartDate !== null || reportEndDate !== null || reportSearch !== '')
+      const isSelectMode = type === 'invoice' ? isSelectModeInvoice : isSelectModeReport
+      
+      // If in select mode and items are selected, only download those
+      // If filtered but not in select mode, download all filtered items
+      // Otherwise download all items
+      let itemsToDownload = type === 'invoice' ? displayedInvoices : displayedReports
+      
+      if (isSelectMode && selectedIds.length > 0) {
+        itemsToDownload = itemsToDownload.filter(item => selectedIds.includes(item.id))
+      }
+      
+      if (itemsToDownload.length === 0) {
+        throw new Error(`No ${type}s selected for download`)
+      }
+
+      // Set initial download progress with type
+      setDownloadProgress({
+        current: 0,
+        total: itemsToDownload.length,
+        percentage: 0,
+        type
+      })
+      
+      // Use client-side zipping for both invoices and reports
+      const zip = new JSZip()
+      const total = itemsToDownload.length
+      
+      // Download each file and add to zip
+      for (let i = 0; i < itemsToDownload.length; i++) {
+        const item = itemsToDownload[i]
+        try {
+          // Update progress
+          setDownloadProgress({
+            current: i + 1,
+            total,
+            percentage: Math.round(((i + 1) / total) * 100),
+            type
+          })
+          
+          // Fetch the file - use proxy for reports to avoid CORS
+          let response;
+          if (type === 'report') {
+            // For reports, use our proxy API to bypass CORS
+            const proxyUrl = `/api/proxy?url=${encodeURIComponent(item.fileUrl)}`
+            console.log(`Downloading ${type} via proxy: ${item.fileName}`)
+            response = await fetch(proxyUrl)
+          } else {
+            // For invoices, direct download works fine
+            console.log(`Downloading ${type}: ${item.fileName} from ${item.fileUrl.substring(0, 50)}...`)
+            response = await fetch(item.fileUrl)
+          }
+          
+          if (!response.ok) {
+            const errorText = await response.text().catch(() => 'Failed to get error details');
+            throw new Error(`Failed to fetch ${item.fileName}: ${response.status} ${response.statusText} - ${errorText}`)
+          }
+          
+          // Get file as blob
+          const blob = await response.blob()
+          
+          // Add to zip
+          zip.file(item.fileName, blob)
+          console.log(`Added ${item.fileName} to zip (${i+1}/${total})`)
+        } catch (error) {
+          console.error(`Error downloading ${item.fileName}:`, error)
+          // Continue with other files
+        }
+      }
+      
+      // Generate and download zip
+      console.log(`Generating ${type}s zip file with ${Object.keys(zip.files).length} files`)
+      const content = await zip.generateAsync({ 
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 }
+      })
+      
+      // Use file-saver to download the zip
+      const zipFileName = isSelectMode && selectedIds.length > 0 
+        ? `selected_${type}s.zip` 
+        : isFiltered 
+          ? `filtered_${type}s.zip` 
+          : `${type}s.zip`
+      
+      saveAs(content, zipFileName)
+      console.log(`${type}s zip file downloaded as ${zipFileName}`)
     } catch (error) {
       console.error(`Error in batch download:`, error)
       setMessage({
         type: 'error',
-        text: `Failed to download ${type}s. Please try again.`
+        text: error instanceof Error ? error.message : `Failed to download ${type}s. Please try again.`
       })
     } finally {
       setBatchDownloadLoading(prev => ({ ...prev, [type]: false }))
+      // Reset download progress when done
+      if (downloadProgress.type === type) {
+        setDownloadProgress({
+          current: 0,
+          total: 0,
+          percentage: 0,
+          type: null
+        })
+      }
     }
   }
 
@@ -897,21 +998,24 @@ export default function Account() {
                       >
                         <CalendarIcon className="h-5 w-5" />
                       </button>
-                      {/* <button
-                        onClick={handleSortInvoices}
-                        className="inline-flex items-center p-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-                        title={`Sort by date ${invoiceSort === 'asc' ? 'ascending' : 'descending'}`}
+                      <button
+                        onClick={toggleSelectModeInvoice}
+                        className={`inline-flex items-center px-3 py-2 border shadow-sm text-sm font-medium rounded-md ${
+                          isSelectModeInvoice 
+                            ? 'text-white bg-primary-600 hover:bg-primary-700 border-primary-600' 
+                            : 'text-gray-700 bg-white hover:bg-gray-50 border-gray-300'
+                        }`}
                       >
-                        {invoiceSort === 'asc' ? (
-                          <ArrowUpIcon className="h-5 w-5" />
-                        ) : (
-                          <ArrowDownIcon className="h-5 w-5" />
-                        )}
-                      </button> */}
+                        {isSelectModeInvoice ? "Cancel Selection" : "Select Items"}
+                      </button>
                       <button
                         onClick={() => handleBatchDownload('invoice')}
                         className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-                        disabled={displayedInvoices.length === 0 || batchDownloadLoading.invoice}
+                        disabled={
+                          (displayedInvoices.length === 0) || 
+                          (isSelectModeInvoice && selectedInvoices.length === 0) || 
+                          batchDownloadLoading.invoice
+                        }
                       >
                         {batchDownloadLoading.invoice ? (
                           <>
@@ -919,19 +1023,23 @@ export default function Account() {
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
-                            {downloadProgress.current > 0 ? 
+                            {downloadProgress.type === 'invoice' && downloadProgress.current > 0 ? 
                               `Downloading ${downloadProgress.current}/${downloadProgress.total} (${downloadProgress.percentage}%)` : 
                               'Preparing download...'}
                           </>
                         ) : (
                           <>
                             <ArrowDownTrayIcon className="h-5 w-5 mr-2" />
-                            Download All
+                            {isSelectModeInvoice && selectedInvoices.length > 0 
+                              ? `Download Selected (${selectedInvoices.length})` 
+                              : (invoiceStartDate || invoiceEndDate || invoiceSearch) 
+                                ? `Download Filtered (${displayedInvoices.length})` 
+                                : 'Download All'}
                           </>
                         )}
                       </button>
-                              </div>
-                                </div>
+                    </div>
+                  </div>
 
                   {showInvoiceFilter && (
                     <div className="bg-white p-4 rounded-lg border border-gray-200">
@@ -943,7 +1051,7 @@ export default function Account() {
                         >
                           Clear Dates
                         </button>
-                              </div>
+                      </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
@@ -985,6 +1093,18 @@ export default function Account() {
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
                         <tr>
+                          {isSelectModeInvoice && (
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              <div className="flex items-center">
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                                  checked={selectedInvoices.length === displayedInvoices.length && displayedInvoices.length > 0}
+                                  onChange={selectAllInvoices}
+                                />
+                              </div>
+                            </th>
+                          )}
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             File Name
                           </th>
@@ -1010,6 +1130,18 @@ export default function Account() {
                         {displayedInvoices.length > 0 ? (
                           displayedInvoices.map((invoice) => (
                             <tr key={invoice.id} className="hover:bg-gray-50">
+                              {isSelectModeInvoice && (
+                                <td className="px-4 py-4 whitespace-nowrap">
+                                  <div className="flex items-center">
+                                    <input
+                                      type="checkbox"
+                                      className="h-4 w-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                                      checked={selectedInvoices.includes(invoice.id)}
+                                      onChange={() => toggleInvoiceSelection(invoice.id)}
+                                    />
+                                  </div>
+                                </td>
+                              )}
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                 {invoice.fileName}
                               </td>
@@ -1028,14 +1160,14 @@ export default function Account() {
                           ))
                         ) : (
                           <tr>
-                            <td colSpan={3} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
+                            <td colSpan={isSelectModeInvoice ? 4 : 3} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
                               No invoices found
                             </td>
                           </tr>
                         )}
                       </tbody>
                     </table>
-                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1061,21 +1193,24 @@ export default function Account() {
                       >
                         <CalendarIcon className="h-5 w-5" />
                       </button>
-                      {/* <button
-                        onClick={handleSortReports}
-                        className="inline-flex items-center p-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-                        title={`Sort by date ${reportSort === 'asc' ? 'ascending' : 'descending'}`}
+                      <button
+                        onClick={toggleSelectModeReport}
+                        className={`inline-flex items-center px-3 py-2 border shadow-sm text-sm font-medium rounded-md ${
+                          isSelectModeReport 
+                            ? 'text-white bg-primary-600 hover:bg-primary-700 border-primary-600' 
+                            : 'text-gray-700 bg-white hover:bg-gray-50 border-gray-300'
+                        }`}
                       >
-                        {reportSort === 'asc' ? (
-                          <ArrowUpIcon className="h-5 w-5" />
-                        ) : (
-                          <ArrowDownIcon className="h-5 w-5" />
-                        )}
-                      </button> */}
+                        {isSelectModeReport ? "Cancel Selection" : "Select Items"}
+                      </button>
                       <button
                         onClick={() => handleBatchDownload('report')}
                         className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-                        disabled={displayedReports.length === 0 || batchDownloadLoading.report}
+                        disabled={
+                          (displayedReports.length === 0) || 
+                          (isSelectModeReport && selectedReports.length === 0) || 
+                          batchDownloadLoading.report
+                        }
                       >
                         {batchDownloadLoading.report ? (
                           <>
@@ -1083,17 +1218,23 @@ export default function Account() {
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
-                            Downloading...
+                            {downloadProgress.type === 'report' && downloadProgress.current > 0 ? 
+                              `Downloading ${downloadProgress.current}/${downloadProgress.total} (${downloadProgress.percentage}%)` : 
+                              'Preparing download...'}
                           </>
                         ) : (
                           <>
                             <ArrowDownTrayIcon className="h-5 w-5 mr-2" />
-                            Download All
+                            {isSelectModeReport && selectedReports.length > 0 
+                              ? `Download Selected (${selectedReports.length})` 
+                              : (reportStartDate || reportEndDate || reportSearch) 
+                                ? `Download Filtered (${displayedReports.length})` 
+                                : 'Download All'}
                           </>
                         )}
                       </button>
-                              </div>
-                                </div>
+                    </div>
+                  </div>
 
                   {showReportFilter && (
                     <div className="bg-white p-4 rounded-lg border border-gray-200">
@@ -1105,7 +1246,7 @@ export default function Account() {
                         >
                           Clear Dates
                         </button>
-                              </div>
+                      </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
@@ -1147,6 +1288,18 @@ export default function Account() {
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50">
                         <tr>
+                          {isSelectModeReport && (
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              <div className="flex items-center">
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                                  checked={selectedReports.length === displayedReports.length && displayedReports.length > 0}
+                                  onChange={selectAllReports}
+                                />
+                              </div>
+                            </th>
+                          )}
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             File Name
                           </th>
@@ -1172,6 +1325,18 @@ export default function Account() {
                         {displayedReports.length > 0 ? (
                           displayedReports.map((report) => (
                             <tr key={report.id} className="hover:bg-gray-50">
+                              {isSelectModeReport && (
+                                <td className="px-4 py-4 whitespace-nowrap">
+                                  <div className="flex items-center">
+                                    <input
+                                      type="checkbox"
+                                      className="h-4 w-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                                      checked={selectedReports.includes(report.id)}
+                                      onChange={() => toggleReportSelection(report.id)}
+                                    />
+                                  </div>
+                                </td>
+                              )}
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                 {report.fileName}
                               </td>
@@ -1190,14 +1355,14 @@ export default function Account() {
                           ))
                         ) : (
                           <tr>
-                            <td colSpan={3} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
+                            <td colSpan={isSelectModeReport ? 4 : 3} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
                               No reports found
                             </td>
                           </tr>
                         )}
                       </tbody>
                     </table>
-                    </div>
+                  </div>
                 </div>
               )}
             </div>
