@@ -14,7 +14,7 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 import { TextField, Button, Box, Select, MenuItem, FormControl, InputLabel } from '@mui/material'
-import { ArrowUpIcon, ArrowDownIcon, CalendarIcon, ChevronUpIcon, ChevronDownIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
+import { ArrowUpIcon, ArrowDownIcon, CalendarIcon, ChevronUpIcon, ChevronDownIcon, MagnifyingGlassIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline'
 import { DateRangeFilter } from '@/components/DateRangeFilter'
 
 interface UserProfile {
@@ -393,6 +393,99 @@ export default function Account() {
     setReportSearch(e.target.value)
   }
 
+  const handleDownload = async (id: string, type: 'invoice' | 'report') => {
+    try {
+      // Get the document from Firestore
+      const docRef = doc(db, type === 'invoice' ? 'invoices' : 'reports', id)
+      const docSnap = await getDoc(docRef)
+
+      if (!docSnap.exists()) {
+        throw new Error(`${type} not found`)
+      }
+
+      const data = docSnap.data()
+      let fileUrl = data.fileUrl
+      const fileName = data.fileName
+
+      // If it's a Cloudinary URL (for invoices), modify it to include filename
+      if (type === 'invoice' && fileUrl.includes('cloudinary.com')) {
+        // Extract the base URL and version number more carefully
+        const uploadIndex = fileUrl.indexOf('/upload/')
+        const versionIndex = fileUrl.indexOf('/v', uploadIndex)
+        const baseUrl = fileUrl.substring(0, uploadIndex + 7) // Include '/upload/'
+        const versionAndRest = fileUrl.substring(versionIndex + 1) // Keep everything after '/v'
+        
+        // Remove file extension from fileName
+        const fileNameWithoutExt = fileName.replace(/\.[^/.]+$/, '')
+        
+        // Reconstruct URL with fl_attachment and filename
+        fileUrl = `${baseUrl}/fl_attachment:${fileNameWithoutExt}/${versionAndRest}`
+      }
+
+      // Create a temporary link element
+      const link = document.createElement('a')
+      link.href = fileUrl
+      link.download = fileName // This will be used for non-Cloudinary downloads
+      link.target = '_blank'
+      link.rel = 'noopener noreferrer'
+
+      // Append to body, click, and remove
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    } catch (error) {
+      console.error(`Error downloading ${type}:`, error)
+      // You might want to show an error message to the user here
+    }
+  }
+
+  // Add batch download function
+  const handleBatchDownload = async (type: 'invoice' | 'report') => {
+    try {
+      const items = type === 'invoice' ? displayedInvoices : displayedReports
+      
+      // Create a temporary container for all download links
+      const container = document.createElement('div')
+      container.style.display = 'none'
+      document.body.appendChild(container)
+
+      // Create and trigger downloads for each item
+      for (const item of items) {
+        let fileUrl = item.fileUrl
+        const fileName = item.fileName
+
+        // If it's a Cloudinary URL (for invoices), modify it to include filename
+        if (type === 'invoice' && fileUrl.includes('cloudinary.com')) {
+          // Extract the base URL and version number more carefully
+          const uploadIndex = fileUrl.indexOf('/upload/')
+          const versionIndex = fileUrl.indexOf('/v', uploadIndex)
+          const baseUrl = fileUrl.substring(0, uploadIndex + 7) // Include '/upload/'
+          const versionAndRest = fileUrl.substring(versionIndex + 1) // Keep everything after '/v'
+          
+          // Remove file extension from fileName
+          const fileNameWithoutExt = fileName.replace(/\.[^/.]+$/, '')
+          
+          // Reconstruct URL with fl_attachment and filename
+          fileUrl = `${baseUrl}fl_attachment:${fileNameWithoutExt}/${versionAndRest}`
+        }
+
+        const link = document.createElement('a')
+        link.href = fileUrl
+        link.download = fileName // This will be used for non-Cloudinary downloads
+        link.target = '_blank'
+        link.rel = 'noopener noreferrer'
+        container.appendChild(link)
+        link.click()
+      }
+
+      // Clean up
+      document.body.removeChild(container)
+    } catch (error) {
+      console.error(`Error in batch download:`, error)
+      // You might want to show an error message to the user here
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 py-12">
@@ -738,7 +831,7 @@ export default function Account() {
                       >
                         <CalendarIcon className="h-5 w-5" />
                       </button>
-                      <button
+                      {/* <button
                         onClick={handleSortInvoices}
                         className="inline-flex items-center p-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
                         title={`Sort by date ${invoiceSort === 'asc' ? 'ascending' : 'descending'}`}
@@ -748,9 +841,17 @@ export default function Account() {
                         ) : (
                           <ArrowDownIcon className="h-5 w-5" />
                         )}
+                      </button> */}
+                      <button
+                        onClick={() => handleBatchDownload('invoice')}
+                        className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                        disabled={displayedInvoices.length === 0}
+                      >
+                        <ArrowDownTrayIcon className="h-5 w-5 mr-2" />
+                        Download All
                       </button>
-                    </div>
-                  </div>
+                              </div>
+                                </div>
 
                   {showInvoiceFilter && (
                     <div className="bg-white p-4 rounded-lg border border-gray-200">
@@ -762,7 +863,7 @@ export default function Account() {
                         >
                           Clear Dates
                         </button>
-                      </div>
+                              </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
@@ -822,25 +923,26 @@ export default function Account() {
                               </span>
                             </button>
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
                         {displayedInvoices.length > 0 ? (
                           displayedInvoices.map((invoice) => (
-                            <tr key={invoice.id}>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{invoice.fileName}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                {format(invoice.processedAt, 'PPpp')}
+                            <tr key={invoice.id} className="hover:bg-gray-50">
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                {invoice.fileName}
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                                  invoice.status === 'completed' ? 'bg-green-100 text-green-800' :
-                                  invoice.status === 'processing' ? 'bg-yellow-100 text-yellow-800' :
-                                  'bg-red-100 text-red-800'
-                                }`}>
-                                  {invoice.status}
-                                </span>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                {invoice.processedAt.toLocaleString()}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                <button
+                                  onClick={() => handleDownload(invoice.id, 'invoice')}
+                                  className="text-primary-600 hover:text-primary-900"
+                                >
+                                  <ArrowDownTrayIcon className="h-5 w-5" />
+                                </button>
                               </td>
                             </tr>
                           ))
@@ -853,7 +955,7 @@ export default function Account() {
                         )}
                       </tbody>
                     </table>
-                  </div>
+                    </div>
                 </div>
               )}
 
@@ -879,7 +981,7 @@ export default function Account() {
                       >
                         <CalendarIcon className="h-5 w-5" />
                       </button>
-                      <button
+                      {/* <button
                         onClick={handleSortReports}
                         className="inline-flex items-center p-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
                         title={`Sort by date ${reportSort === 'asc' ? 'ascending' : 'descending'}`}
@@ -889,9 +991,17 @@ export default function Account() {
                         ) : (
                           <ArrowDownIcon className="h-5 w-5" />
                         )}
+                      </button> */}
+                      <button
+                        onClick={() => handleBatchDownload('report')}
+                        className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                        disabled={displayedReports.length === 0}
+                      >
+                        <ArrowDownTrayIcon className="h-5 w-5 mr-2" />
+                        Download All
                       </button>
-                    </div>
-                  </div>
+                              </div>
+                                </div>
 
                   {showReportFilter && (
                     <div className="bg-white p-4 rounded-lg border border-gray-200">
@@ -903,7 +1013,7 @@ export default function Account() {
                         >
                           Clear Dates
                         </button>
-                      </div>
+                              </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
@@ -963,25 +1073,26 @@ export default function Account() {
                               </span>
                             </button>
                           </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
                         {displayedReports.length > 0 ? (
                           displayedReports.map((report) => (
-                            <tr key={report.id}>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{report.fileName}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                {format(report.processedAt, 'PPpp')}
+                            <tr key={report.id} className="hover:bg-gray-50">
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                {report.fileName}
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                                  report.status === 'completed' ? 'bg-green-100 text-green-800' :
-                                  report.status === 'processing' ? 'bg-yellow-100 text-yellow-800' :
-                                  'bg-red-100 text-red-800'
-                                }`}>
-                                  {report.status}
-                                </span>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                {report.processedAt.toLocaleString()}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                <button
+                                  onClick={() => handleDownload(report.id, 'report')}
+                                  className="text-primary-600 hover:text-primary-900"
+                                >
+                                  <ArrowDownTrayIcon className="h-5 w-5" />
+                                </button>
                               </td>
                             </tr>
                           ))
@@ -994,7 +1105,7 @@ export default function Account() {
                         )}
                       </tbody>
                     </table>
-                  </div>
+                    </div>
                 </div>
               )}
             </div>
