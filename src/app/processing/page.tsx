@@ -5,10 +5,11 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { collection, query, where, getDocs, updateDoc, doc, addDoc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
-import { CheckCircleIcon, XCircleIcon, DocumentIcon, ArrowUturnLeftIcon, ArrowUturnRightIcon, ArrowPathIcon, ArrowLeftIcon, CheckIcon } from '@heroicons/react/24/outline'
+import { CheckCircleIcon, XCircleIcon, DocumentIcon, ArrowUturnLeftIcon, ArrowUturnRightIcon, ArrowPathIcon, ArrowLeftIcon, CheckIcon, EyeIcon } from '@heroicons/react/24/outline'
 import { analyzeInvoice } from '@/lib/ai-processing'
 import { generateStyledExcel } from '@/lib/excel-utils'
 import { ExcelColumn, ExcelRow } from '@/types/excel'
+import PdfViewer from '@/components/PdfViewer'
 
 interface ProcessResult {
   success: boolean
@@ -90,6 +91,7 @@ export default function ProcessingPage() {
   const [isExcelGenerated, setIsExcelGenerated] = useState(false)
   const [isTestingExcel, setIsTestingExcel] = useState(false)
   const [excelTestError, setExcelTestError] = useState<string | null>(null)
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -564,6 +566,8 @@ export default function ProcessingPage() {
           <p className="mt-2 text-sm text-gray-600">Track and manage invoice processing</p>
         </div>
 
+       
+
         {/* Processing Stats */}
         <div className="bg-white rounded-lg shadow mb-8">
           <div className="p-6">
@@ -612,27 +616,6 @@ export default function ProcessingPage() {
                   <h3 className="text-lg font-medium text-gray-900">Processed Invoices</h3>
                   {tableData.length > 0 && (
                     <div className="flex justify-end space-x-4">
-                      {/* <button
-                        onClick={handleTestExcel}
-                        disabled={isTestingExcel}
-                        className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-                          isTestingExcel 
-                            ? 'bg-gray-400 cursor-not-allowed' 
-                            : 'bg-blue-600 hover:bg-blue-700'
-                        } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500`}
-                      >
-                        {isTestingExcel ? (
-                          <>
-                            <ArrowPathIcon className="animate-spin -ml-1 mr-2 h-5 w-5" />
-                            Testing Excel...
-                          </>
-                        ) : (
-                          <>
-                            <DocumentIcon className="h-5 w-5 mr-2" />
-                            Test Excel Styling
-                          </>
-                        )}
-                      </button> */}
                       <button
                         onClick={handleConfirmAndContinue}
                         disabled={isProcessing || isConfirming}
@@ -678,6 +661,9 @@ export default function ProcessingPage() {
                   <table className="min-w-full border-collapse">
                     <thead>
                       <tr className="bg-gray-50">
+                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 border-b">
+                          Preview
+                        </th>
                         {excelColumns.map((column) => (
                           <th
                             key={column.id}
@@ -696,6 +682,14 @@ export default function ProcessingPage() {
                     <tbody>
                       {tableData.map((row, index) => (
                         <tr key={index} className="border-b hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm border-b">
+                            <button
+                              onClick={() => setSelectedInvoice(invoices[index])}
+                              className="text-blue-600 hover:text-blue-800"
+                            >
+                              <EyeIcon className="h-5 w-5" />
+                            </button>
+                          </td>
                           {excelColumns.map((column) => (
                             <td
                               key={column.id}
@@ -730,6 +724,32 @@ export default function ProcessingPage() {
                   </table>
                 </div>
               </div>
+
+               {/* PDF Preview Section */}
+        {selectedInvoice && (
+          <div className="bg-white rounded-lg shadow mb-8">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-medium text-gray-900">
+                  Preview: {selectedInvoice.fileName}
+                </h3>
+                <button
+                  onClick={() => setSelectedInvoice(null)}
+                  className="text-gray-400 hover:text-gray-500"
+                >
+                  <XCircleIcon className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="h-[600px] overflow-auto">
+                <PdfViewer
+                  fileUrl={selectedInvoice.fileUrl}
+                  fileName={selectedInvoice.fileName}
+                  zoomLevel={1.0}
+                />
+              </div>
+            </div>
+          </div>
+        )}
             </div>
           </div>
         </div>
