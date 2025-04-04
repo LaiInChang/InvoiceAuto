@@ -9,6 +9,7 @@ import { CheckCircleIcon, XCircleIcon, DocumentIcon, ArrowUturnLeftIcon, ArrowUt
 import { analyzeInvoice } from '@/lib/ai-processing'
 import { generateStyledExcel } from '@/lib/excel-utils'
 import { ExcelColumn, ExcelRow } from '@/types/excel'
+import PdfViewer from '@/components/PdfViewer'
 
 interface ProcessResult {
   success: boolean
@@ -90,6 +91,7 @@ export default function ProcessingPage() {
   const [isExcelGenerated, setIsExcelGenerated] = useState(false)
   const [isTestingExcel, setIsTestingExcel] = useState(false)
   const [excelTestError, setExcelTestError] = useState<string | null>(null)
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
 
   useEffect(() => {
     if (!user) {
@@ -678,6 +680,7 @@ export default function ProcessingPage() {
                   <table className="min-w-full border-collapse">
                     <thead>
                       <tr className="bg-gray-50">
+                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 border-b">Preview</th>
                         {excelColumns.map((column) => (
                           <th
                             key={column.id}
@@ -696,6 +699,11 @@ export default function ProcessingPage() {
                     <tbody>
                       {tableData.map((row, index) => (
                         <tr key={index} className="border-b hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm border-b">
+                            <button onClick={() => setSelectedInvoice(invoices[index])}>
+                              <DocumentIcon className="h-5 w-5 text-blue-500" />
+                            </button>
+                          </td>
                           {excelColumns.map((column) => (
                             <td
                               key={column.id}
@@ -812,6 +820,16 @@ export default function ProcessingPage() {
             Back
           </button>
         </div>
+
+        {selectedInvoice && (
+          <div className="invoice-preview">
+            <PdfViewer
+              fileUrl={selectedInvoice.fileUrl}
+              fileName={selectedInvoice.fileName}
+              zoomLevel={1.0}
+            />
+          </div>
+        )}
       </div>
     </div>
   )
