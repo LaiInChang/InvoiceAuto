@@ -14,7 +14,7 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 import { TextField, Button, Box, Select, MenuItem, FormControl, InputLabel } from '@mui/material'
-import { ArrowUpIcon, ArrowDownIcon, CalendarIcon, ChevronUpIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
+import { ArrowUpIcon, ArrowDownIcon, CalendarIcon, ChevronUpIcon, ChevronDownIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import { DateRangeFilter } from '@/components/DateRangeFilter'
 
 interface UserProfile {
@@ -112,6 +112,8 @@ export default function Account() {
   const [reportSort, setReportSort] = useState<'asc' | 'desc'>('desc')
   const [showInvoiceFilter, setShowInvoiceFilter] = useState(false)
   const [showReportFilter, setShowReportFilter] = useState(false)
+  const [invoiceSearch, setInvoiceSearch] = useState('')
+  const [reportSearch, setReportSearch] = useState('')
 
   useEffect(() => {
     const fetchData = async () => {
@@ -269,8 +271,16 @@ export default function Account() {
         return true
       }
 
+      // Filter by search term
+      const filterBySearch = (invoice: Invoice) => {
+        if (!invoiceSearch) return true
+        return invoice.fileName.toLowerCase().includes(invoiceSearch.toLowerCase())
+      }
+
       // Filter invoices
-      const filteredInvoices = allInvoices.filter(invoice => filterByDateRange(invoice.processedAt))
+      const filteredInvoices = allInvoices
+        .filter(invoice => filterByDateRange(invoice.processedAt))
+        .filter(filterBySearch)
       
       // Sort by date
       const sortedInvoices = [...filteredInvoices].sort((a, b) => {
@@ -285,7 +295,7 @@ export default function Account() {
     }
 
     filterAndSortInvoices()
-  }, [allInvoices, invoiceStartDate, invoiceEndDate, invoiceSort])
+  }, [allInvoices, invoiceStartDate, invoiceEndDate, invoiceSort, invoiceSearch])
 
   useEffect(() => {
     const filterAndSortReports = () => {
@@ -306,8 +316,16 @@ export default function Account() {
         return true
       }
 
+      // Filter by search term
+      const filterBySearch = (report: Report) => {
+        if (!reportSearch) return true
+        return report.fileName.toLowerCase().includes(reportSearch.toLowerCase())
+      }
+
       // Filter reports
-      const filteredReports = allReports.filter(report => filterByDateRange(report.processedAt))
+      const filteredReports = allReports
+        .filter(report => filterByDateRange(report.processedAt))
+        .filter(filterBySearch)
       
       // Sort by date
       const sortedReports = [...filteredReports].sort((a, b) => {
@@ -322,7 +340,7 @@ export default function Account() {
     }
 
     filterAndSortReports()
-  }, [allReports, reportStartDate, reportEndDate, reportSort])
+  }, [allReports, reportStartDate, reportEndDate, reportSort, reportSearch])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -365,6 +383,14 @@ export default function Account() {
   const handleClearReportDates = () => {
     setReportStartDate(null)
     setReportEndDate(null)
+  }
+
+  const handleInvoiceSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInvoiceSearch(e.target.value)
+  }
+
+  const handleReportSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setReportSearch(e.target.value)
   }
 
   if (loading) {
@@ -695,6 +721,16 @@ export default function Account() {
                   <div className="flex justify-between items-center">
                     <h3 className="text-lg font-medium text-gray-900">Your Invoices</h3>
                     <div className="flex items-center gap-2">
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="Search invoices..."
+                          value={invoiceSearch}
+                          onChange={handleInvoiceSearch}
+                          className="pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                        />
+                        <MagnifyingGlassIcon className="h-5 w-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                      </div>
                       <button
                         onClick={() => setShowInvoiceFilter(!showInvoiceFilter)}
                         className="inline-flex items-center p-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
@@ -826,6 +862,16 @@ export default function Account() {
                   <div className="flex justify-between items-center">
                     <h3 className="text-lg font-medium text-gray-900">Your Reports</h3>
                     <div className="flex items-center gap-2">
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="Search reports..."
+                          value={reportSearch}
+                          onChange={handleReportSearch}
+                          className="pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                        />
+                        <MagnifyingGlassIcon className="h-5 w-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                      </div>
                       <button
                         onClick={() => setShowReportFilter(!showReportFilter)}
                         className="inline-flex items-center p-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
