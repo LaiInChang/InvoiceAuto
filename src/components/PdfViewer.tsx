@@ -21,6 +21,9 @@ export default function PdfViewer({ fileUrl, fileName, zoomLevel }: PdfViewerPro
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(true)
 
+  // Check if the file is an image
+  const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName)
+
   const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     setNumPages(numPages)
     setPageNumber(1)
@@ -44,7 +47,7 @@ export default function PdfViewer({ fileUrl, fileName, zoomLevel }: PdfViewerPro
 
   return (
     <div className="pdf-container flex flex-col items-center">
-      {isLoading && (
+      {isLoading && !isImage && (
         <div className="text-center py-8">
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
           <p className="mt-2 text-gray-600">Loading PDF...</p>
@@ -62,10 +65,24 @@ export default function PdfViewer({ fileUrl, fileName, zoomLevel }: PdfViewerPro
                 rel="noopener noreferrer" 
                 className="text-blue-600 hover:text-blue-800 underline"
               >
-                Open PDF in new tab
+                Open file in new tab
               </a>
             </div>
           </div>
+        </div>
+      ) : isImage ? (
+        <div className="w-full h-full flex justify-center items-center">
+          <img 
+            src={fileUrl} 
+            alt={fileName}
+            className="max-w-full max-h-full object-contain"
+            onLoad={() => setIsLoading(false)}
+            onError={(e) => {
+              console.error('Error loading image:', e)
+              setError('Failed to load image')
+              setIsLoading(false)
+            }}
+          />
         </div>
       ) : (
         <Document
@@ -91,7 +108,7 @@ export default function PdfViewer({ fileUrl, fileName, zoomLevel }: PdfViewerPro
         </Document>
       )}
 
-      {numPages && numPages > 1 && (
+      {!isImage && numPages && numPages > 1 && (
         <div className="flex justify-between items-center mt-4 bg-gray-100 p-2 rounded w-full max-w-md">
           <button 
             onClick={() => changePage(-1)} 
